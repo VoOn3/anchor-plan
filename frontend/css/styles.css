@@ -907,22 +907,6 @@ body {
     padding: 6px 10px;
 }
 
-/* Links input in dashboard */
-.links-input {
-    background: var(--bg-lighter);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 13px;
-    padding: 4px 6px;
-    transition: border-color 0.2s;
-}
-
-.links-input:focus {
-    border-color: var(--primary);
-    outline: none;
-}
-
 /* Danger button */
 .btn-danger {
     background: var(--danger);

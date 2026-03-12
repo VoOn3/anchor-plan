@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:5000/api";
+const API_BASE = "/api";
 
 const params = new URLSearchParams(window.location.search);
 const projectId = params.get("project");

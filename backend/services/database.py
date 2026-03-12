@@ -3,7 +3,10 @@ import json
 import os
 from datetime import datetime
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "anchor_plan.db")
+if os.environ.get("VERCEL"):
+    DB_PATH = "/tmp/anchor_plan.db"
+else:
+    DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "anchor_plan.db")
 
 
 def get_db():
@@ -32,7 +35,7 @@ def init_db():
             collaborator_sites TEXT DEFAULT '[]'
         );
     """)
-    for col, default in [("selected_urls", "'[]'"), ("collaborator_sites", "'[]'"), ("custom_links", "'{}'" )]:
+    for col, default in [("selected_urls", "'[]'"), ("collaborator_sites", "'[]'")]:
         try:
             conn.execute(f"ALTER TABLE projects ADD COLUMN {col} TEXT DEFAULT {default}")
             conn.commit()
@@ -79,7 +82,6 @@ def get_project(project_id):
         "plan": json.loads(row["plan"]),
         "selected_urls": json.loads(row["selected_urls"] or "[]"),
         "collaborator_sites": json.loads(row["collaborator_sites"] or "[]"),
-        "custom_links": json.loads(row["custom_links"] or "{}"),
     }
 
 
@@ -110,7 +112,7 @@ def update_project(project_id, **kwargs):
     sets = []
     vals = []
     for key, val in kwargs.items():
-        if key in ("settings", "analysis", "plan", "selected_urls", "collaborator_sites", "custom_links"):
+        if key in ("settings", "analysis", "plan", "selected_urls", "collaborator_sites"):
             sets.append(f"{key} = ?")
             vals.append(json.dumps(val, ensure_ascii=False))
         elif key in ("name", "brand_name", "domain"):
