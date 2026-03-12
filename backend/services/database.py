@@ -3,7 +3,10 @@ import json
 import os
 from datetime import datetime
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "anchor_plan.db")
+if os.environ.get("VERCEL"):
+    DB_PATH = "/tmp/anchor_plan.db"
+else:
+    DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "anchor_plan.db")
 
 
 def get_db():
