@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 
 
@@ -64,6 +65,9 @@ def analyze_pages(positions_data: list[dict], ahrefs_data: list[dict]) -> list[d
             "unique_donors": len({a.get("referring_url", "") for a in anchors if a.get("referring_url")}),
         })
 
+    for page in results:
+        page["recommended_links"] = calculate_recommended_links(page)
+
     results.sort(key=lambda x: x["priority_score"], reverse=True)
     return results
 
@@ -115,8 +119,7 @@ def classify_anchor(anchor_text: str, target_keywords: list[str], brand_name: st
     if not text or text in ["[image]", "[no anchor text]"]:
         return "generic"
 
-    url_patterns = ["http://", "https://", "www.", ".com", ".ua", ".org", ".net"]
-    if any(p in text for p in url_patterns):
+    if re.match(r'^https?://\S+$', text) or re.match(r'^www\.\S+$', text):
         return "url"
 
     if brand_name and brand_name.lower() in text:
@@ -220,6 +223,67 @@ def calculate_priority(keyword_analysis: list[dict]) -> dict:
         level = "low"
 
     return {"level": level, "score": round(total_score, 1)}
+
+
+def calculate_recommended_links(page: dict) -> int:
+    keywords = page.get("keywords", [])
+    best_kw = page.get("best_keyword")
+    anchor_profile = page.get("anchor_profile", {})
+    total_backlinks = page.get("total_backlinks", 0)
+
+    # Factor 1: positional need (0-5)
+    pos = best_kw.get("current_position") if best_kw else None
+    if pos is None:
+        pos_links = 2
+    elif 1 <= pos <= 3:
+        pos_links = 1
+    elif 4 <= pos <= 10:
+        pos_links = 3
+    elif 11 <= pos <= 20:
+        pos_links = 4
+    elif 21 <= pos <= 50:
+        pos_links = 5
+    else:
+        pos_links = 2
+
+    # Factor 2: dynamics multiplier
+    dyn_label = best_kw.get("dynamics_label", "stable") if best_kw else "stable"
+    if dyn_label == "decline":
+        dyn_mult = 1.5
+    elif dyn_label == "growth":
+        dyn_mult = 1.3
+    else:
+        dyn_mult = 1.0
+
+    # Factor 3: anchor profile deficit (0-3 extra)
+    existing_anchors = page.get("existing_anchors", [])
+    total_a = len(existing_anchors) or 1
+    anchor_types = {"exact_match": 0, "partial_match": 0, "branded": 0, "url": 0}
+    kw_list = [kw["keyword"] for kw in keywords]
+
+    for anc in existing_anchors:
+        atype = classify_anchor(anc, kw_list, "", page.get("url", ""))
+        if atype in anchor_types:
+            anchor_types[atype] += 1
+
+    current_pcts = {t: round(c / total_a * 100, 1) for t, c in anchor_types.items()}
+    target_mins = {"exact_match": 10, "partial_match": 20, "branded": 20, "url": 10}
+
+    max_deficit = 0
+    for atype, target_min in target_mins.items():
+        deficit = target_min - current_pcts.get(atype, 0)
+        if deficit > max_deficit:
+            max_deficit = deficit
+
+    if max_deficit > 10:
+        deficit_extra = 2
+    elif max_deficit > 5:
+        deficit_extra = 1
+    else:
+        deficit_extra = 0
+
+    result = round(pos_links * dyn_mult + deficit_extra)
+    return max(1, min(10, result))
 
 
 def calculate_url_recommendation(keyword_analysis: list[dict]) -> dict:

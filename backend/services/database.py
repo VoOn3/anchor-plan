@@ -32,7 +32,7 @@ def init_db():
             collaborator_sites TEXT DEFAULT '[]'
         );
     """)
-    for col, default in [("selected_urls", "'[]'"), ("collaborator_sites", "'[]'")]:
+    for col, default in [("selected_urls", "'[]'"), ("collaborator_sites", "'[]'"), ("custom_links", "'{}'" )]:
         try:
             conn.execute(f"ALTER TABLE projects ADD COLUMN {col} TEXT DEFAULT {default}")
             conn.commit()
@@ -79,6 +79,7 @@ def get_project(project_id):
         "plan": json.loads(row["plan"]),
         "selected_urls": json.loads(row["selected_urls"] or "[]"),
         "collaborator_sites": json.loads(row["collaborator_sites"] or "[]"),
+        "custom_links": json.loads(row["custom_links"] or "{}"),
     }
 
 
@@ -109,7 +110,7 @@ def update_project(project_id, **kwargs):
     sets = []
     vals = []
     for key, val in kwargs.items():
-        if key in ("settings", "analysis", "plan", "selected_urls", "collaborator_sites"):
+        if key in ("settings", "analysis", "plan", "selected_urls", "collaborator_sites", "custom_links"):
             sets.append(f"{key} = ?")
             vals.append(json.dumps(val, ensure_ascii=False))
         elif key in ("name", "brand_name", "domain"):

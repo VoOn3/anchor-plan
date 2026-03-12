@@ -1,5 +1,3 @@
-import random
-from urllib.parse import urlparse
 from services.analyzer import classify_anchor
 
 PURCHASE_ORDER = {
@@ -12,11 +10,14 @@ PURCHASE_ORDER = {
 }
 
 
-def generate_anchor_plan(analysis: list[dict], settings: dict, selected_urls: list[str] | None = None) -> list[dict]:
+def generate_anchor_plan(analysis: list[dict], settings: dict,
+                         selected_urls: list[str] | None = None,
+                         custom_links: dict | None = None) -> list[dict]:
     brand_name = settings.get("brand_name", "")
     distribution = settings.get("anchor_distribution", {})
     links_per_page = settings.get("links_per_page", 3)
     planned_links_count = settings.get("planned_links_count", 0)
+    custom_links = custom_links or {}
 
     pages_for_plan = []
     for page in analysis:
@@ -28,7 +29,13 @@ def generate_anchor_plan(analysis: list[dict], settings: dict, selected_urls: li
     if planned_links_count > 0 and pages_for_plan:
         links_allocation = _distribute_links(pages_for_plan, planned_links_count)
     else:
-        links_allocation = {p["url"]: links_per_page for p in pages_for_plan}
+        links_allocation = {}
+        for p in pages_for_plan:
+            links_allocation[p["url"]] = p.get("recommended_links", links_per_page)
+
+    for url, count in custom_links.items():
+        if url in links_allocation:
+            links_allocation[url] = max(1, int(count))
 
     plan = []
 
@@ -48,29 +55,26 @@ def generate_anchor_plan(analysis: list[dict], settings: dict, selected_urls: li
             existing_anchors, keywords, brand_name, url
         )
 
-        strategy = determine_anchor_strategy(
+        strategy = _build_strategy(
             best_keyword=best_kw,
-            keywords=keywords_data,
-            recommendation=recommendation,
+            keywords_data=keywords_data,
             current_dist=current_dist,
             distribution=distribution,
         )
 
-        recommended = generate_smart_recommendations(
+        anchors = _generate_anchors(
             strategy=strategy,
-            keywords=keywords_data,
+            keywords_data=keywords_data,
             best_keyword=best_kw,
             brand_name=brand_name,
             url=url,
             existing_anchors=existing_anchors,
-            current_dist=current_dist,
-            distribution=distribution,
             count=page_link_count,
         )
 
         purchase_order = PURCHASE_ORDER.get(recommendation, 6)
 
-        for rec in recommended:
+        for rec in anchors:
             plan.append({
                 "url": url,
                 "priority": page["priority"],
@@ -90,272 +94,275 @@ def generate_anchor_plan(analysis: list[dict], settings: dict, selected_urls: li
     return plan
 
 
-def determine_anchor_strategy(
+def _is_type_allowed(anchor_type: str, distribution: dict) -> bool:
+    """Type is forbidden if its max is explicitly set to 0."""
+    cfg = distribution.get(anchor_type)
+    if cfg is None:
+        return True
+    return cfg.get("max", 100) > 0
+
+
+def _filter_allowed(types: list[str], distribution: dict) -> list[str]:
+    return [t for t in types if _is_type_allowed(t, distribution)]
+
+
+def _build_strategy(
     best_keyword: dict | None,
-    keywords: list[dict],
-    recommendation: str,
+    keywords_data: list[dict],
     current_dist: dict,
     distribution: dict,
-) -> list[dict]:
-    """Returns ordered list of anchor type strategies with weights and reasons."""
-    if not best_keyword:
-        return [
-            {"type": "branded", "weight": 50, "reason": "Немає даних по ключах — безпечний branded"},
-            {"type": "url", "weight": 50, "reason": "URL-анкор для природності"},
-        ]
+) -> list[str]:
+    """Return ordered list of anchor types to fill."""
+    if not best_keyword or not keywords_data:
+        return _filter_allowed(["branded", "url"], distribution) or ["url"]
 
     pos = best_keyword.get("current_position")
     dyn = best_keyword.get("dynamics_label", "stable")
 
     exact_pct = current_dist.get("exact_match", 0)
-    partial_pct = current_dist.get("partial_match", 0)
-    branded_pct = current_dist.get("branded", 0)
-    generic_pct = current_dist.get("generic", 0)
-
     exact_max = distribution.get("exact_match", {}).get("max", 15)
-    branded_min = distribution.get("branded", {}).get("min", 20)
+    exact_ok = exact_pct <= exact_max
 
-    exact_oversaturated = exact_pct > exact_max
+    branded_pct = current_dist.get("branded", 0)
+    branded_min = distribution.get("branded", {}).get("min", 20)
     branded_deficit = branded_pct < branded_min
 
-    strategies = []
+    has_multiple_kw = len(keywords_data) > 1
 
     if pos and 4 <= pos <= 10 and dyn == "growth":
-        if not exact_oversaturated:
-            strategies.append({"type": "exact_match", "weight": 40,
-                "reason": f"Позиція {pos}, зростання, exact {exact_pct}% (ліміт {exact_max}%) — дотиснути"})
-        strategies.append({"type": "partial_match", "weight": 30,
-            "reason": f"Позиція {pos}, partial підсилює сигнал"})
+        types = []
+        if exact_ok:
+            types.append("exact_match")
+        if has_multiple_kw:
+            types.append("partial_match")
         if branded_deficit:
-            strategies.append({"type": "branded", "weight": 20,
-                "reason": f"Branded {branded_pct}% (мін. {branded_min}%) — дефіцит"})
+            types.append("branded")
+        types.append("url")
+        return _filter_allowed(types, distribution) or _filter_allowed(["branded", "url"], distribution) or ["url"]
 
-    elif pos and 4 <= pos <= 10 and dyn == "stable":
-        strategies.append({"type": "partial_match", "weight": 40,
-            "reason": f"Позиція {pos}, стагнація — м'який сигнал через partial"})
-        if not exact_oversaturated:
-            strategies.append({"type": "exact_match", "weight": 25,
-                "reason": f"Exact {exact_pct}% — є запас, обережний exact"})
+    if pos and 4 <= pos <= 10 and dyn == "stable":
+        types = []
+        if has_multiple_kw:
+            types.append("partial_match")
+        if exact_ok:
+            types.append("exact_match")
         if branded_deficit:
-            strategies.append({"type": "branded", "weight": 25,
-                "reason": f"Branded {branded_pct}% (дефіцит) — розбавлення"})
+            types.append("branded")
+        types.append("url")
+        return _filter_allowed(types, distribution) or _filter_allowed(["branded", "url"], distribution) or ["url"]
 
-    elif pos and 4 <= pos <= 10 and dyn == "decline":
-        strategies.append({"type": "partial_match", "weight": 45,
-            "reason": f"Позиція {pos}, падіння — partial без ризику переоптимізації"})
-        strategies.append({"type": "branded", "weight": 35,
-            "reason": f"Падіння, branded {branded_pct}% — безпечна підтримка"})
-        strategies.append({"type": "url", "weight": 10,
-            "reason": "URL-анкор для природності профілю"})
+    if pos and 4 <= pos <= 10 and dyn == "decline":
+        types = []
+        if has_multiple_kw:
+            types.append("partial_match")
+        types.append("branded")
+        types.append("url")
+        return _filter_allowed(types, distribution) or _filter_allowed(["branded", "url"], distribution) or ["url"]
 
-    elif pos and 11 <= pos <= 20 and dyn == "growth":
-        if not exact_oversaturated:
-            strategies.append({"type": "exact_match", "weight": 40,
-                "reason": f"Позиція {pos}, зростання, exact {exact_pct}% — агресивніше"})
-        strategies.append({"type": "partial_match", "weight": 30,
-            "reason": f"Partial для підсилення сигналу"})
+    if pos and 11 <= pos <= 20 and dyn == "growth":
+        types = []
+        if exact_ok:
+            types.append("exact_match")
+        if has_multiple_kw:
+            types.append("partial_match")
         if branded_deficit:
-            strategies.append({"type": "branded", "weight": 20,
-                "reason": f"Branded {branded_pct}% — дефіцит"})
+            types.append("branded")
+        types.append("url")
+        return _filter_allowed(types, distribution) or _filter_allowed(["branded", "url"], distribution) or ["url"]
 
-    elif pos and 11 <= pos <= 20:
-        strategies.append({"type": "partial_match", "weight": 45,
-            "reason": f"Позиція {pos}, {'стагнація' if dyn == 'stable' else 'падіння'} — partial безпечніше"})
-        strategies.append({"type": "branded", "weight": 30,
-            "reason": f"Branded {branded_pct}% — розбавлення профілю"})
-        strategies.append({"type": "url", "weight": 15,
-            "reason": "URL-анкор для природності"})
+    if pos and 11 <= pos <= 20:
+        types = []
+        if has_multiple_kw:
+            types.append("partial_match")
+        types.append("branded")
+        types.append("url")
+        return _filter_allowed(types, distribution) or _filter_allowed(["branded", "url"], distribution) or ["url"]
 
-    elif pos and 21 <= pos <= 50 and dyn == "growth":
-        strategies.append({"type": "partial_match", "weight": 40,
-            "reason": f"Позиція {pos}, зростання — partial сигнал без ризику"})
-        strategies.append({"type": "url", "weight": 20,
-            "reason": "URL-анкор для нарощування маси"})
+    if pos and 21 <= pos <= 50 and dyn == "growth":
+        types = []
+        if has_multiple_kw:
+            types.append("partial_match")
         if branded_deficit:
-            strategies.append({"type": "branded", "weight": 25,
-                "reason": f"Branded дефіцит — безпечне нарощування"})
+            types.append("branded")
+        types.append("url")
+        return _filter_allowed(types, distribution) or _filter_allowed(["branded", "url"], distribution) or ["url"]
 
-    elif pos and 21 <= pos <= 50:
-        strategies.append({"type": "branded", "weight": 40,
-            "reason": f"Позиція {pos} — branded для безпечного нарощування"})
-        strategies.append({"type": "url", "weight": 35,
-            "reason": f"Позиція {pos} — URL-анкор для маси"})
-        strategies.append({"type": "partial_match", "weight": 15,
-            "reason": "Partial для м'якого сигналу"})
+    if pos and 21 <= pos <= 50:
+        types = ["branded", "url"]
+        if has_multiple_kw:
+            types.append("partial_match")
+        return _filter_allowed(types, distribution) or ["url"]
 
-    elif pos and 1 <= pos <= 3:
-        strategies.append({"type": "branded", "weight": 50,
-            "reason": f"ТОП-{pos} — branded для утримання без ризику"})
-        strategies.append({"type": "url", "weight": 35,
-            "reason": "URL-анкор для природності профілю"})
+    if pos and 1 <= pos <= 3:
+        return _filter_allowed(["branded", "url"], distribution) or ["url"]
 
-    else:
-        strategies.append({"type": "branded", "weight": 50,
-            "reason": "Далекі позиції — безпечний branded"})
-        strategies.append({"type": "url", "weight": 35,
-            "reason": "URL-анкор для нарощування маси"})
-
-    if not strategies:
-        strategies = [
-            {"type": "branded", "weight": 50, "reason": "Fallback branded"},
-            {"type": "url", "weight": 50, "reason": "Fallback URL-анкор"},
-        ]
-
-    strategies.sort(key=lambda x: x["weight"], reverse=True)
-    return strategies
+    return _filter_allowed(["branded", "url"], distribution) or ["url"]
 
 
-def generate_smart_recommendations(
-    strategy: list[dict],
-    keywords: list[dict],
+def _generate_anchors(
+    strategy: list[str],
+    keywords_data: list[dict],
     best_keyword: dict | None,
     brand_name: str,
     url: str,
     existing_anchors: list[str],
-    current_dist: dict,
-    distribution: dict,
     count: int,
 ) -> list[dict]:
-    recommendations = []
-    existing_lower = {a.lower().strip() for a in existing_anchors}
-    used_kw_for_exact = set()
+    results = []
+    used_anchors = {a.lower().strip() for a in existing_anchors}
+    used_keywords = set()
 
-    for s in strategy:
-        if len(recommendations) >= count:
+    ranked_kw = _rank_keywords(keywords_data)
+
+    for anchor_type in strategy:
+        if len(results) >= count:
             break
-        anchor = create_smart_anchor(
-            s["type"], keywords, best_keyword, brand_name, url, used_kw_for_exact
+
+        anchor = _create_anchor(
+            anchor_type, ranked_kw, best_keyword,
+            brand_name, url, used_keywords, used_anchors,
         )
-        if anchor and anchor["anchor"].lower().strip() not in existing_lower:
-            anchor["rationale"] = s["reason"]
-            recommendations.append(anchor)
-            existing_lower.add(anchor["anchor"].lower().strip())
+        if anchor:
+            results.append(anchor)
+            used_anchors.add(anchor["anchor"].lower().strip())
 
-    attempts = 0
-    while len(recommendations) < count and attempts < 10:
-        attempts += 1
-        for s in strategy:
-            if len(recommendations) >= count:
-                break
-            anchor = create_smart_anchor(
-                s["type"], keywords, best_keyword, brand_name, url, used_kw_for_exact
-            )
-            if anchor and anchor["anchor"].lower().strip() not in existing_lower:
-                anchor["rationale"] = s["reason"]
-                recommendations.append(anchor)
-                existing_lower.add(anchor["anchor"].lower().strip())
+    cycle_idx = 0
+    while len(results) < count and cycle_idx < 50:
+        anchor_type = strategy[cycle_idx % len(strategy)]
+        cycle_idx += 1
 
-    return recommendations[:count]
+        anchor = _create_anchor(
+            anchor_type, ranked_kw, best_keyword,
+            brand_name, url, used_keywords, used_anchors,
+        )
+        if anchor:
+            results.append(anchor)
+            used_anchors.add(anchor["anchor"].lower().strip())
+
+    return results[:count]
 
 
-def create_smart_anchor(
+def _rank_keywords(keywords_data: list[dict]) -> list[dict]:
+    """Sort keywords by priority: position 4-20 decline first, then growth, then stable."""
+    scored = []
+    for kw in keywords_data:
+        pos = kw.get("current_position")
+        if pos is None:
+            scored.append((-1000, kw))
+            continue
+        dyn = kw.get("dynamics", 0)
+        dyn_label = kw.get("dynamics_label", "stable")
+
+        if 4 <= pos <= 10:
+            base = 200
+        elif 11 <= pos <= 20:
+            base = 150
+        elif 21 <= pos <= 50:
+            base = 80
+        elif 1 <= pos <= 3:
+            base = 50
+        else:
+            base = 10
+
+        dyn_bonus = 0
+        if dyn_label == "decline":
+            dyn_bonus = 20
+        elif dyn_label == "growth":
+            dyn_bonus = 10
+
+        score = base - pos + dyn_bonus + dyn
+        scored.append((score, kw))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [kw for _, kw in scored]
+
+
+def _create_anchor(
     anchor_type: str,
-    keywords: list[dict],
+    ranked_kw: list[dict],
     best_keyword: dict | None,
     brand_name: str,
     url: str,
-    used_kw_for_exact: set,
+    used_keywords: set,
+    used_anchors: set,
 ) -> dict | None:
+
     if anchor_type == "exact_match":
-        return _create_exact(keywords, best_keyword, used_kw_for_exact)
-    elif anchor_type == "partial_match":
-        return _create_partial(keywords, best_keyword, used_kw_for_exact)
-    elif anchor_type == "branded":
-        return _create_branded(brand_name, url)
-    elif anchor_type == "url":
-        return _create_url(url)
+        kw = _pick_keyword(ranked_kw, used_keywords, prefer_best=True, best_keyword=best_keyword)
+        if not kw:
+            return None
+        anchor_text = kw["keyword"]
+        if anchor_text.lower().strip() in used_anchors:
+            return None
+        used_keywords.add(kw["keyword"])
+        pos = kw.get("current_position")
+        dyn = kw.get("dynamics_label", "stable")
+        return {
+            "anchor": anchor_text,
+            "type": "exact_match",
+            "target_keyword": kw["keyword"],
+            "rationale": f"Exact «{kw['keyword']}» (поз. {pos}, {dyn})",
+        }
+
+    if anchor_type == "partial_match":
+        kw = _pick_keyword(ranked_kw, used_keywords, prefer_best=False, best_keyword=best_keyword)
+        if not kw:
+            return None
+        anchor_text = kw["keyword"]
+        if anchor_text.lower().strip() in used_anchors:
+            return None
+        used_keywords.add(kw["keyword"])
+        pos = kw.get("current_position")
+        dyn = kw.get("dynamics_label", "stable")
+        return {
+            "anchor": anchor_text,
+            "type": "partial_match",
+            "target_keyword": kw["keyword"],
+            "rationale": f"Ключ «{kw['keyword']}» (поз. {pos}, {dyn})",
+        }
+
+    if anchor_type == "branded":
+        if brand_name:
+            anchor_text = brand_name
+        else:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            anchor_text = parsed.netloc.replace("www.", "")
+        if anchor_text.lower().strip() in used_anchors:
+            return None
+        return {
+            "anchor": anchor_text,
+            "type": "branded",
+            "target_keyword": "",
+            "rationale": f"Брендовий анкор",
+        }
+
+    if anchor_type == "url":
+        if url.lower().strip() in used_anchors:
+            return None
+        return {
+            "anchor": url,
+            "type": "url",
+            "target_keyword": "",
+            "rationale": "Безанкорне посилання (повний URL)",
+        }
+
     return None
 
 
-def _select_keyword(keywords: list[dict], best_keyword: dict | None, exclude: set) -> dict | None:
-    """Pick a keyword prioritizing position 4-20 with best dynamics, excluding already used."""
-    candidates = []
-    for kw in keywords:
-        if kw["keyword"] in exclude:
-            continue
-        pos = kw.get("current_position")
-        if pos is None:
-            continue
-        dyn = kw.get("dynamics", 0)
-        if 4 <= pos <= 20:
-            score = 100 - pos + dyn * 2
-        elif 21 <= pos <= 50:
-            score = 30 - (pos - 20) + dyn
-        else:
-            score = 5
-        candidates.append((score, kw))
-
-    if candidates:
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        return candidates[0][1]
-
-    if best_keyword and best_keyword["keyword"] not in exclude:
+def _pick_keyword(
+    ranked_kw: list[dict],
+    used_keywords: set,
+    prefer_best: bool,
+    best_keyword: dict | None,
+) -> dict | None:
+    if prefer_best and best_keyword and best_keyword["keyword"] not in used_keywords:
         return best_keyword
-    for kw in keywords:
-        if kw["keyword"] not in exclude:
+
+    for kw in ranked_kw:
+        if kw["keyword"] not in used_keywords:
             return kw
-    return best_keyword or (keywords[0] if keywords else None)
-
-
-def _create_exact(keywords: list[dict], best_keyword: dict | None, used: set) -> dict | None:
-    kw = _select_keyword(keywords, best_keyword, used)
-    if not kw:
-        return None
-    used.add(kw["keyword"])
-    pos = kw.get("current_position")
-    return {
-        "anchor": kw["keyword"],
-        "type": "exact_match",
-        "target_keyword": kw["keyword"],
-        "rationale": f"Exact match для «{kw['keyword']}» (поз. {pos})",
-    }
-
-
-def _create_partial(keywords: list[dict], best_keyword: dict | None, used: set) -> dict | None:
-    kw = _select_keyword(keywords, best_keyword, set())
-    if not kw:
-        return None
-    text = kw["keyword"]
-    words = text.split()
-    variations = []
-    if len(words) >= 2:
-        variations.extend([
-            text + " ціна", text + " відгуки", "як вибрати " + text,
-            "найкращий " + text, "про " + text, text + " огляд",
-            "все про " + text, text + " рейтинг", "порівняння " + text,
-        ])
-    else:
-        variations.extend([
-            text + " у 2026", "послуги " + text, text + " поради",
-            "гід по " + text, text + " для початківців", "що таке " + text,
-        ])
-    anchor = random.choice(variations) if variations else text
-    return {
-        "anchor": anchor,
-        "type": "partial_match",
-        "target_keyword": text,
-        "rationale": f"Partial match для «{text}»",
-    }
-
-
-def _create_branded(brand_name: str, url: str) -> dict | None:
-    if brand_name:
-        options = [
-            brand_name, brand_name.lower(), brand_name.capitalize(),
-            f"сайт {brand_name}", f"{brand_name} — офіційний сайт",
-            f"на {brand_name}", f"від {brand_name}",
-        ]
-        return {"anchor": random.choice(options), "type": "branded", "target_keyword": "", "rationale": ""}
-    parsed = urlparse(url)
-    domain = parsed.netloc.replace("www.", "")
-    return {"anchor": domain, "type": "branded", "target_keyword": "", "rationale": ""}
-
-
-
-def _create_url(url: str) -> dict:
-    parsed = urlparse(url)
-    options = [url, f"{parsed.scheme}://{parsed.netloc}", parsed.netloc, parsed.netloc.replace("www.", "")]
-    return {"anchor": random.choice(options), "type": "url", "target_keyword": "", "rationale": ""}
+    return None
 
 
 def calculate_current_distribution(
@@ -376,20 +383,20 @@ def calculate_current_distribution(
 
 
 def _distribute_links(pages: list[dict], total_links: int) -> dict:
-    """Distribute total_links among pages proportionally to priority_score."""
-    total_score = sum(p.get("priority_score", 1) for p in pages)
-    if total_score <= 0:
-        total_score = len(pages)
+    raw_weights = []
+    for p in pages:
+        raw_weights.append(p.get("recommended_links", 3))
+
+    total_raw = sum(raw_weights) or len(pages)
+    scale = total_links / total_raw
 
     allocation = {}
     remaining = total_links
     for i, page in enumerate(pages):
-        score = page.get("priority_score", 1)
-        share = score / total_score
-        count = max(1, round(share * total_links))
         if i == len(pages) - 1:
             count = max(1, remaining)
         else:
+            count = max(1, round(raw_weights[i] * scale))
             count = min(count, remaining)
         allocation[page["url"]] = count
         remaining -= count

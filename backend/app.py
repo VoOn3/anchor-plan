@@ -3,7 +3,7 @@ from flask_cors import CORS
 import os
 import uuid
 from services.parser import parse_positions_file, parse_ahrefs_file, parse_collaborator_file, get_collaborator_columns
-from services.analyzer import analyze_pages, classify_anchor
+from services.analyzer import analyze_pages, classify_anchor, calculate_recommended_links
 from services.planner import generate_anchor_plan, calculate_current_distribution
 from services.exporter import export_to_xlsx
 from services.site_filter import filter_sites
@@ -54,6 +54,15 @@ def api_get_project(project_id):
     project = get_project(project_id)
     if not project:
         return jsonify({"error": "Проект не знайдено"}), 404
+
+    migrated = False
+    for page in project.get("analysis", []):
+        if "recommended_links" not in page:
+            page["recommended_links"] = calculate_recommended_links(page)
+            migrated = True
+    if migrated:
+        update_project(project_id, analysis=project["analysis"])
+
     return jsonify(project)
 
 
@@ -127,7 +136,8 @@ def upload_files(project_id):
         if p.get("recommendation") in ("priority", "recommended")
     ]
 
-    plan = generate_anchor_plan(analysis, settings, selected_urls=auto_selected)
+    custom_links = project.get("custom_links", {})
+    plan = generate_anchor_plan(analysis, settings, selected_urls=auto_selected, custom_links=custom_links)
 
     update_project(
         project_id, settings=settings, analysis=analysis,
@@ -140,6 +150,7 @@ def upload_files(project_id):
         "plan": plan,
         "settings": settings,
         "selected_urls": auto_selected,
+        "custom_links": custom_links,
     })
 
 
@@ -154,6 +165,7 @@ def recalculate(project_id):
     data = request.json or {}
     new_settings = data.get("settings")
     selected_urls = data.get("selected_urls")
+    custom_links = data.get("custom_links")
 
     settings = project["settings"]
     if new_settings:
@@ -162,14 +174,18 @@ def recalculate(project_id):
     if selected_urls is None:
         selected_urls = project.get("selected_urls", [])
 
-    plan = generate_anchor_plan(project["analysis"], settings, selected_urls=selected_urls)
+    if custom_links is None:
+        custom_links = project.get("custom_links", {})
 
-    update_project(project_id, settings=settings, plan=plan, selected_urls=selected_urls)
+    plan = generate_anchor_plan(project["analysis"], settings, selected_urls=selected_urls, custom_links=custom_links)
+
+    update_project(project_id, settings=settings, plan=plan, selected_urls=selected_urls, custom_links=custom_links)
 
     return jsonify({
         "plan": plan,
         "settings": settings,
         "selected_urls": selected_urls,
+        "custom_links": custom_links,
     })
 
 
@@ -183,15 +199,20 @@ def select_urls(project_id):
 
     data = request.json or {}
     selected_urls = data.get("selected_urls", [])
+    custom_links = data.get("custom_links")
+
+    if custom_links is None:
+        custom_links = project.get("custom_links", {})
 
     settings = project["settings"]
-    plan = generate_anchor_plan(project["analysis"], settings, selected_urls=selected_urls)
+    plan = generate_anchor_plan(project["analysis"], settings, selected_urls=selected_urls, custom_links=custom_links)
 
-    update_project(project_id, selected_urls=selected_urls, plan=plan)
+    update_project(project_id, selected_urls=selected_urls, plan=plan, custom_links=custom_links)
 
     return jsonify({
         "plan": plan,
         "selected_urls": selected_urls,
+        "custom_links": custom_links,
     })
 
 

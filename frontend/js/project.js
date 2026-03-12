@@ -20,6 +20,7 @@ let state = {
     collabCount: 0,
     purchaseAssignments: [],
     purchaseStats: null,
+    customLinks: {},
 };
 
 const REC_LABELS = {
@@ -48,6 +49,7 @@ async function loadProject() {
         state.plan = data.plan || [];
         state.settings = data.settings || null;
         state.selectedUrls = new Set(data.selected_urls || []);
+        state.customLinks = data.custom_links || {};
 
         document.title = `${data.name} — Anchor Plan`;
         const logoSpan = document.querySelector(".sidebar-logo span");
@@ -171,6 +173,7 @@ document.getElementById("analyze-btn").addEventListener("click", async () => {
         state.plan = data.plan;
         state.settings = data.settings;
         state.selectedUrls = new Set(data.selected_urls || []);
+        state.customLinks = data.custom_links || {};
 
         enableNav();
         renderDashboard();
@@ -209,6 +212,7 @@ function renderDashboardTable(data) {
         const checked = state.selectedUrls.has(page.url) ? "checked" : "";
         const rowCls = checked ? "row-selected" : "";
         const rec = page.recommendation || "not_recommended";
+        const linksVal = state.customLinks[page.url] ?? page.recommended_links ?? 3;
         return `
         <tr class="${rowCls}">
             <td><input type="checkbox" class="url-cb" data-url="${page.url}" ${checked}></td>
@@ -220,6 +224,7 @@ function renderDashboardTable(data) {
             <td class="dynamics-${page.best_keyword?.dynamics_label || "stable"}">${getDynamicsIcon(page.best_keyword?.dynamics_label)} ${page.best_keyword?.dynamics_label || "—"}</td>
             <td>${page.total_backlinks}</td>
             <td>${page.dofollow_count}</td>
+            <td><input type="number" class="links-input" data-url="${page.url}" value="${linksVal}" min="1" max="20" style="width:52px;text-align:center"></td>
             <td>${page.anchor_profile.unique_anchors}</td>
         </tr>`;
     }).join("");
@@ -233,6 +238,16 @@ function renderDashboardTable(data) {
         });
     });
 
+    tbody.querySelectorAll(".links-input").forEach((input) => {
+        input.addEventListener("change", () => {
+            const url = input.dataset.url;
+            const val = parseInt(input.value) || 1;
+            input.value = Math.max(1, Math.min(20, val));
+            state.customLinks[url] = parseInt(input.value);
+            updateSelectionBar();
+        });
+    });
+
     document.getElementById("select-all-cb").checked =
         data.length > 0 && data.every((p) => state.selectedUrls.has(p.url));
 }
@@ -241,7 +256,13 @@ function updateSelectionBar() {
     const bar = document.getElementById("selection-bar");
     const total = state.analysis.length;
     const selected = state.selectedUrls.size;
-    document.getElementById("selection-count").textContent = `Обрано: ${selected} з ${total}`;
+    let totalLinks = 0;
+    for (const url of state.selectedUrls) {
+        const page = state.analysis.find((p) => p.url === url);
+        totalLinks += state.customLinks[url] ?? page?.recommended_links ?? 3;
+    }
+    document.getElementById("selection-count").textContent =
+        `Обрано: ${selected} з ${total} | Лінків: ${totalLinks}`;
     bar.style.display = total > 0 ? "flex" : "none";
 }
 
@@ -305,7 +326,7 @@ document.getElementById("btn-generate-plan").addEventListener("click", async () 
         const resp = await fetch(`${API_BASE}/projects/${projectId}/select-urls`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ selected_urls: [...state.selectedUrls] }),
+            body: JSON.stringify({ selected_urls: [...state.selectedUrls], custom_links: state.customLinks }),
         });
         const data = await resp.json();
         if (resp.ok) {
@@ -498,7 +519,7 @@ document.getElementById("recalculate-btn").addEventListener("click", async () =>
         const resp = await fetch(`${API_BASE}/projects/${projectId}/recalculate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ settings: newSettings, selected_urls: [...state.selectedUrls] }),
+            body: JSON.stringify({ settings: newSettings, selected_urls: [...state.selectedUrls], custom_links: state.customLinks }),
         });
         const data = await resp.json();
         if (resp.ok) {
