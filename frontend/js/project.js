@@ -64,6 +64,7 @@ async function loadProject() {
             renderDashboard();
             renderPlan();
             if (state.settings) renderSettings();
+            renderStatistics();
         } else if (state.settings) {
             renderSettings();
         }
@@ -179,6 +180,7 @@ document.getElementById("analyze-btn").addEventListener("click", async () => {
         renderDashboard();
         renderPlan();
         renderSettings();
+        renderStatistics();
         switchSection("dashboard");
     } catch (err) {
         alert("Помилка: " + err.message);
@@ -1196,3 +1198,537 @@ document.getElementById("replace-site-modal").addEventListener("click", (e) => {
 // Live filters in modal
 document.getElementById("replace-search").addEventListener("input", renderReplaceSitesTable);
 document.getElementById("replace-max-price").addEventListener("input", renderReplaceSitesTable);
+
+// ========== Statistics Section ==========
+
+const STAT_TYPE_COLORS = {
+    exact_match: "rgba(108,92,231,0.8)",
+    partial_match: "rgba(0,184,148,0.8)",
+    branded: "rgba(253,203,110,0.8)",
+    url: "rgba(116,185,255,0.8)",
+    generic: "rgba(136,136,170,0.6)",
+    other: "rgba(100,100,120,0.5)",
+};
+
+const STAT_TYPE_LABELS = {
+    exact_match: "Exact Match",
+    partial_match: "Partial Match",
+    branded: "Branded",
+    url: "URL",
+    generic: "Generic",
+    other: "Other",
+};
+
+let statCharts = {};
+
+function classifyAnchorJS(anchorText, targetKeywords, brandName, targetUrl) {
+    const text = (anchorText || "").toLowerCase().trim();
+    if (!text || text === "[image]" || text === "[no anchor text]") return "generic";
+    if (/^https?:\/\/\S+$/.test(text) || /^www\.\S+$/.test(text)) return "url";
+    if (brandName && text.includes(brandName.toLowerCase())) return "branded";
+
+    const kwList = (targetKeywords || []).map(k => k.toLowerCase().trim());
+    for (const kw of kwList) {
+        if (text === kw) return "exact_match";
+        if (kw.includes(text) || text.includes(kw)) return "partial_match";
+    }
+
+    const kwWords = new Set();
+    kwList.forEach(kw => kw.split(/\s+/).forEach(w => kwWords.add(w)));
+    const textWords = new Set(text.split(/\s+/));
+    let overlap = 0;
+    for (const w of textWords) { if (kwWords.has(w)) overlap++; }
+    if (overlap >= 2) return "partial_match";
+
+    const genericAnchors = new Set([
+        "тут","тут.","сюди","далі","детальніше","дізнатися більше",
+        "перейти","на сайті","на сайт","посилання","click here",
+        "here","read more","learn more","this","link","website",
+        "visit","source","click","check","view","see more",
+    ]);
+    if (genericAnchors.has(text)) return "generic";
+
+    return "other";
+}
+
+function collectStatData() {
+    const brandName = state.settings?.brand_name || "";
+    const allBacklinks = [];
+
+    for (const page of state.analysis) {
+        const rawAnchors = page.raw_anchors || [];
+        const keywords = (page.keywords || []).map(kw => kw.keyword);
+        for (const bl of rawAnchors) {
+            allBacklinks.push({
+                target_url: bl.target_url || page.url,
+                anchor: bl.anchor || "",
+                referring_url: bl.referring_url || "",
+                dr: bl.dr,
+                traffic: bl.traffic,
+                placement_date: bl.placement_date || null,
+                cost: parseFloat(bl.cost) || 0,
+                type: classifyAnchorJS(bl.anchor, keywords, brandName, page.url),
+            });
+        }
+    }
+    return allBacklinks;
+}
+
+function hasStatData() {
+    const all = collectStatData();
+    return all.length > 0;
+}
+
+function hasDateData() {
+    const all = collectStatData();
+    return all.some(bl => parseStatDate(bl.placement_date) !== null);
+}
+
+const UA_MONTHS = {
+    "січня": "01", "лютого": "02", "березня": "03", "квітня": "04",
+    "травня": "05", "червня": "06", "липня": "07", "серпня": "08",
+    "вересня": "09", "жовтня": "10", "листопада": "11", "грудня": "12",
+    "січень": "01", "лютий": "02", "березень": "03", "квітень": "04",
+    "травень": "05", "червень": "06", "липень": "07", "серпень": "08",
+    "вересень": "09", "жовтень": "10", "листопад": "11", "грудень": "12",
+};
+
+function parseStatDate(dateStr) {
+    if (!dateStr) return null;
+    const s = String(dateStr).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return new Date(s.substring(0, 10));
+    if (/^\d{2}\.\d{2}\.\d{4}/.test(s)) {
+        const [d, m, y] = s.split(".");
+        return new Date(`${y}-${m}-${d}`);
+    }
+    const uaMatch = s.match(/^(\d{1,2})\s+(\S+)\s+(\d{4})$/);
+    if (uaMatch) {
+        const monthNum = UA_MONTHS[uaMatch[2].toLowerCase()];
+        if (monthNum) {
+            return new Date(`${uaMatch[3]}-${monthNum}-${uaMatch[1].padStart(2, "0")}`);
+        }
+    }
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+function toMonthKey(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    return `${y}-${m}`;
+}
+
+function renderStatistics() {
+    const navStat = document.getElementById("nav-statistics");
+    if (!hasStatData()) {
+        navStat.style.display = "none";
+        return;
+    }
+    navStat.style.display = "";
+    navStat.classList.remove("disabled");
+
+    const hasDates = hasDateData();
+    const filterBar = document.querySelector(".stat-filter-bar");
+    if (filterBar) filterBar.style.display = hasDates ? "flex" : "none";
+
+    if (hasDates) {
+        const allBl = collectStatData();
+        const dates = allBl.map(bl => parseStatDate(bl.placement_date)).filter(Boolean);
+        dates.sort((a, b) => a - b);
+
+        const fromInput = document.getElementById("stat-date-from");
+        const toInput = document.getElementById("stat-date-to");
+        if (!fromInput.value && dates.length) fromInput.value = dates[0].toISOString().substring(0, 10);
+        if (!toInput.value && dates.length) toInput.value = dates[dates.length - 1].toISOString().substring(0, 10);
+    }
+
+    applyStatFilter();
+}
+
+function applyStatFilter() {
+    const fromVal = document.getElementById("stat-date-from").value;
+    const toVal = document.getElementById("stat-date-to").value;
+    const from = fromVal ? new Date(fromVal) : null;
+    const to = toVal ? new Date(toVal + "T23:59:59") : null;
+
+    const allBl = collectStatData();
+    const hasDates = hasDateData();
+
+    let filtered;
+    if (hasDates && (from || to)) {
+        filtered = allBl.filter(bl => {
+            const d = parseStatDate(bl.placement_date);
+            if (!d) return false;
+            if (from && d < from) return false;
+            if (to && d > to) return false;
+            return true;
+        });
+    } else {
+        filtered = allBl;
+    }
+
+    renderStatSummary(filtered);
+    if (hasDates) {
+        document.getElementById("stat-chart-dynamics").parentElement.style.display = "";
+        document.getElementById("stat-chart-types-stacked").parentElement.parentElement.style.display = "";
+        renderStatDynamicsChart(filtered);
+        renderStatTypesStackedChart(filtered);
+    } else {
+        document.getElementById("stat-chart-dynamics").parentElement.style.display = "none";
+        document.getElementById("stat-chart-types-stacked").parentElement.parentElement.style.display = "none";
+    }
+    renderStatTypesPieChart(filtered);
+    renderStatUrlTable(filtered);
+}
+
+function renderStatSummary(data) {
+    const totalLinks = data.length;
+    const totalCost = data.reduce((s, b) => s + b.cost, 0);
+    const avgCost = totalLinks > 0 ? totalCost / totalLinks : 0;
+    const uniqueDonors = new Set(data.map(b => b.referring_url).filter(Boolean)).size;
+    const uniqueUrls = new Set(data.map(b => b.target_url).filter(Boolean)).size;
+
+    document.getElementById("stat-summary-row").innerHTML = `
+        <div class="stat-card total"><div class="stat-value">${totalLinks}</div><div class="stat-label">Всього посилань</div></div>
+        <div class="stat-card"><div class="stat-value">${Math.round(totalCost).toLocaleString("uk-UA")} ₴</div><div class="stat-label">Витрачено</div></div>
+        <div class="stat-card"><div class="stat-value">${Math.round(avgCost).toLocaleString("uk-UA")} ₴</div><div class="stat-label">Середня вартість</div></div>
+        <div class="stat-card"><div class="stat-value">${uniqueDonors}</div><div class="stat-label">Унікальних донорів</div></div>
+        <div class="stat-card"><div class="stat-value">${uniqueUrls}</div><div class="stat-label">Цільових URL</div></div>
+    `;
+}
+
+function renderStatDynamicsChart(data) {
+    const byMonth = {};
+    for (const bl of data) {
+        const d = parseStatDate(bl.placement_date);
+        if (!d) continue;
+        const key = toMonthKey(d);
+        if (!byMonth[key]) byMonth[key] = { count: 0, cost: 0 };
+        byMonth[key].count++;
+        byMonth[key].cost += bl.cost;
+    }
+
+    const labels = Object.keys(byMonth).sort();
+    const counts = labels.map(k => byMonth[k].count);
+    const costs = labels.map(k => Math.round(byMonth[k].cost));
+
+    if (statCharts.dynamics) statCharts.dynamics.destroy();
+    const ctx = document.getElementById("stat-chart-dynamics").getContext("2d");
+    statCharts.dynamics = new Chart(ctx, {
+        type: "bar",
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: "Посилань",
+                    data: counts,
+                    backgroundColor: "rgba(108,92,231,0.7)",
+                    borderRadius: 4,
+                    yAxisID: "y",
+                },
+                {
+                    label: "Витрати (UAH)",
+                    data: costs,
+                    type: "line",
+                    borderColor: "rgba(253,203,110,0.9)",
+                    backgroundColor: "rgba(253,203,110,0.1)",
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 4,
+                    yAxisID: "y1",
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            interaction: { mode: "index", intersect: false },
+            plugins: { legend: { labels: { color: "#8888aa" } } },
+            scales: {
+                x: { ticks: { color: "#8888aa" }, grid: { color: "rgba(42,42,74,0.5)" } },
+                y: { position: "left", ticks: { color: "#8888aa" }, grid: { color: "rgba(42,42,74,0.5)" }, title: { display: true, text: "Посилань", color: "#8888aa" } },
+                y1: { position: "right", ticks: { color: "#fdcb6e" }, grid: { drawOnChartArea: false }, title: { display: true, text: "UAH", color: "#fdcb6e" } },
+            },
+        },
+    });
+}
+
+function renderStatTypesPieChart(data) {
+    const typeCounts = {};
+    for (const bl of data) {
+        typeCounts[bl.type] = (typeCounts[bl.type] || 0) + 1;
+    }
+
+    const types = Object.keys(typeCounts).sort();
+    const values = types.map(t => typeCounts[t]);
+    const colors = types.map(t => STAT_TYPE_COLORS[t] || "rgba(100,100,120,0.5)");
+    const labels = types.map(t => STAT_TYPE_LABELS[t] || t);
+
+    if (statCharts.typesPie) statCharts.typesPie.destroy();
+    const ctx = document.getElementById("stat-chart-types-pie").getContext("2d");
+    statCharts.typesPie = new Chart(ctx, {
+        type: "doughnut",
+        data: {
+            labels,
+            datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }],
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: "right", labels: { color: "#8888aa", padding: 12, font: { size: 12 } } },
+            },
+        },
+    });
+}
+
+function renderStatTypesStackedChart(data) {
+    const byMonth = {};
+    const allTypes = new Set();
+    for (const bl of data) {
+        const d = parseStatDate(bl.placement_date);
+        if (!d) continue;
+        const key = toMonthKey(d);
+        if (!byMonth[key]) byMonth[key] = {};
+        byMonth[key][bl.type] = (byMonth[key][bl.type] || 0) + 1;
+        allTypes.add(bl.type);
+    }
+
+    const labels = Object.keys(byMonth).sort();
+    const typeArr = Array.from(allTypes).sort();
+
+    const datasets = typeArr.map(type => ({
+        label: STAT_TYPE_LABELS[type] || type,
+        data: labels.map(month => byMonth[month][type] || 0),
+        backgroundColor: STAT_TYPE_COLORS[type] || "rgba(100,100,120,0.5)",
+        borderRadius: 2,
+    }));
+
+    if (statCharts.typesStacked) statCharts.typesStacked.destroy();
+    const ctx = document.getElementById("stat-chart-types-stacked").getContext("2d");
+    statCharts.typesStacked = new Chart(ctx, {
+        type: "bar",
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            plugins: { legend: { labels: { color: "#8888aa" } } },
+            scales: {
+                x: { stacked: true, ticks: { color: "#8888aa" }, grid: { color: "rgba(42,42,74,0.5)" } },
+                y: { stacked: true, ticks: { color: "#8888aa" }, grid: { color: "rgba(42,42,74,0.5)" } },
+            },
+        },
+    });
+}
+
+function renderStatUrlTable(data) {
+    const searchTerm = (document.getElementById("stat-url-search")?.value || "").toLowerCase();
+
+    const byUrl = {};
+    for (const bl of data) {
+        const url = bl.target_url;
+        if (!byUrl[url]) byUrl[url] = { url, backlinks: [], cost: 0, types: new Set() };
+        byUrl[url].backlinks.push(bl);
+        byUrl[url].cost += bl.cost;
+        byUrl[url].types.add(bl.type);
+    }
+
+    let rows = Object.values(byUrl).sort((a, b) => b.backlinks.length - a.backlinks.length);
+    if (searchTerm) {
+        rows = rows.filter(r => r.url.toLowerCase().includes(searchTerm));
+    }
+
+    const tbody = document.querySelector("#stat-url-table tbody");
+    tbody.innerHTML = "";
+
+    for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        const typeBadges = Array.from(r.types).map(t =>
+            `<span class="stat-type-badge ${t}">${STAT_TYPE_LABELS[t] || t}</span>`
+        ).join("");
+
+        const mainRow = document.createElement("tr");
+        mainRow.className = "stat-url-row";
+        mainRow.dataset.idx = i;
+        mainRow.innerHTML = `
+            <td><i class="fas fa-chevron-right stat-url-toggle" data-idx="${i}"></i></td>
+            <td title="${r.url}" style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.url}</td>
+            <td>${r.backlinks.length}</td>
+            <td>${Math.round(r.cost).toLocaleString("uk-UA")} ₴</td>
+            <td><div class="stat-type-badges">${typeBadges}</div></td>
+        `;
+
+        const detailRow = document.createElement("tr");
+        detailRow.className = "stat-url-detail";
+        detailRow.id = `stat-detail-${i}`;
+        const detailTd = document.createElement("td");
+        detailTd.colSpan = 5;
+        detailTd.innerHTML = buildUrlDetailHTML(r, i);
+        detailRow.appendChild(detailTd);
+
+        tbody.appendChild(mainRow);
+        tbody.appendChild(detailRow);
+
+        mainRow.addEventListener("click", () => toggleStatDetail(i));
+    }
+}
+
+function buildUrlDetailHTML(urlData, idx) {
+    const blSorted = [...urlData.backlinks].sort((a, b) => {
+        const da = parseStatDate(a.placement_date);
+        const db = parseStatDate(b.placement_date);
+        if (!da || !db) return 0;
+        return db - da;
+    });
+
+    let anchorsHTML = blSorted.map(bl => `
+        <tr>
+            <td>${bl.anchor}</td>
+            <td><span class="stat-type-badge ${bl.type}">${STAT_TYPE_LABELS[bl.type] || bl.type}</span></td>
+            <td title="${bl.referring_url}" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${bl.referring_url || "—"}</td>
+            <td>${bl.dr != null ? bl.dr : "—"}</td>
+            <td>${bl.placement_date || "—"}</td>
+            <td>${bl.cost ? Math.round(bl.cost).toLocaleString("uk-UA") + " ₴" : "—"}</td>
+        </tr>
+    `).join("");
+
+    return `
+        <div class="stat-url-detail-inner">
+            <h4>Закуплені анкори</h4>
+            <table class="stat-anchor-table">
+                <thead><tr><th>Анкор</th><th>Тип</th><th>Донор</th><th>DR</th><th>Дата</th><th>Вартість</th></tr></thead>
+                <tbody>${anchorsHTML}</tbody>
+            </table>
+            <div class="stat-detail-charts">
+                <div class="stat-detail-chart-box">
+                    <h5>Динаміка закупок</h5>
+                    <canvas id="stat-url-dynamics-${idx}" height="150"></canvas>
+                </div>
+                <div class="stat-detail-chart-box">
+                    <h5>Розподіл анкорів</h5>
+                    <canvas id="stat-url-pie-${idx}" height="150"></canvas>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+const statDetailCharts = {};
+
+function toggleStatDetail(idx) {
+    const detail = document.getElementById(`stat-detail-${idx}`);
+    const toggle = document.querySelector(`.stat-url-toggle[data-idx="${idx}"]`);
+    if (!detail || !toggle) return;
+
+    const isOpen = detail.classList.contains("open");
+    if (isOpen) {
+        detail.classList.remove("open");
+        toggle.classList.remove("open");
+        if (statDetailCharts[idx]) {
+            statDetailCharts[idx].forEach(c => c.destroy());
+            delete statDetailCharts[idx];
+        }
+        return;
+    }
+
+    detail.classList.add("open");
+    toggle.classList.add("open");
+
+    const allBl = collectStatData();
+    const fromVal = document.getElementById("stat-date-from").value;
+    const toVal = document.getElementById("stat-date-to").value;
+    const from = fromVal ? new Date(fromVal) : null;
+    const to = toVal ? new Date(toVal + "T23:59:59") : null;
+    const hasDates = hasDateData();
+
+    const mainRow = detail.previousElementSibling;
+    const url = mainRow.querySelector("td:nth-child(2)").getAttribute("title");
+
+    const urlBl = allBl.filter(bl => {
+        if (bl.target_url !== url) return false;
+        if (hasDates && (from || to)) {
+            const d = parseStatDate(bl.placement_date);
+            if (!d) return false;
+            if (from && d < from) return false;
+            if (to && d > to) return false;
+        }
+        return true;
+    });
+
+    const charts = [];
+
+    // Mini dynamics bar (only if date data available)
+    const dynCanvas = document.getElementById(`stat-url-dynamics-${idx}`);
+    if (dynCanvas && hasDates) {
+        const byMonth = {};
+        for (const bl of urlBl) {
+            const d = parseStatDate(bl.placement_date);
+            if (!d) continue;
+            const key = toMonthKey(d);
+            byMonth[key] = (byMonth[key] || 0) + 1;
+        }
+        const mLabels = Object.keys(byMonth).sort();
+        const mCounts = mLabels.map(k => byMonth[k]);
+
+        if (mLabels.length > 0) {
+            const c = new Chart(dynCanvas.getContext("2d"), {
+                type: "bar",
+                data: {
+                    labels: mLabels,
+                    datasets: [{ data: mCounts, backgroundColor: "rgba(108,92,231,0.7)", borderRadius: 3 }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: "#8888aa", font: { size: 10 } }, grid: { display: false } },
+                        y: { ticks: { color: "#8888aa", font: { size: 10 } }, grid: { color: "rgba(42,42,74,0.3)" } },
+                    },
+                },
+            });
+            charts.push(c);
+        }
+    } else if (dynCanvas) {
+        dynCanvas.parentElement.style.display = "none";
+    }
+
+    // Mini types pie
+    const typeCounts = {};
+    for (const bl of urlBl) {
+        typeCounts[bl.type] = (typeCounts[bl.type] || 0) + 1;
+    }
+    const pTypes = Object.keys(typeCounts).sort();
+    const pVals = pTypes.map(t => typeCounts[t]);
+    const pColors = pTypes.map(t => STAT_TYPE_COLORS[t] || "rgba(100,100,120,0.5)");
+    const pLabels = pTypes.map(t => STAT_TYPE_LABELS[t] || t);
+
+    const pieCanvas = document.getElementById(`stat-url-pie-${idx}`);
+    if (pieCanvas) {
+        const c = new Chart(pieCanvas.getContext("2d"), {
+            type: "doughnut",
+            data: {
+                labels: pLabels,
+                datasets: [{ data: pVals, backgroundColor: pColors, borderWidth: 0 }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: "right", labels: { color: "#8888aa", font: { size: 10 }, padding: 6 } },
+                },
+            },
+        });
+        charts.push(c);
+    }
+
+    statDetailCharts[idx] = charts;
+}
+
+// Event listeners for statistics
+document.getElementById("stat-apply-filter")?.addEventListener("click", applyStatFilter);
+document.getElementById("stat-reset-filter")?.addEventListener("click", () => {
+    document.getElementById("stat-date-from").value = "";
+    document.getElementById("stat-date-to").value = "";
+    renderStatistics();
+});
+document.getElementById("stat-url-search")?.addEventListener("input", () => {
+    applyStatFilter();
+});

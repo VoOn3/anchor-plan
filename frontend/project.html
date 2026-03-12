@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="css/styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body>
     <nav class="sidebar">
@@ -36,6 +37,10 @@
             <li data-section="purchases" class="disabled">
                 <i class="fas fa-shopping-cart"></i>
                 <span>Закупки</span>
+            </li>
+            <li data-section="statistics" class="disabled" style="display:none" id="nav-statistics">
+                <i class="fas fa-chart-area"></i>
+                <span>Статистика</span>
             </li>
             <li data-section="settings" class="disabled">
                 <i class="fas fa-sliders"></i>
@@ -302,6 +307,67 @@
                             <th>Якість</th>
                             <th>Статус</th>
                             <th>Дії</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Statistics Section -->
+        <section id="statistics-section" class="section">
+            <div class="section-header">
+                <h1>Статистика закупок</h1>
+                <p>Аналіз закуплених посилань з вигрузки Collaborator</p>
+            </div>
+
+            <div class="stat-filter-bar">
+                <label>Період:</label>
+                <input type="date" id="stat-date-from">
+                <span>—</span>
+                <input type="date" id="stat-date-to">
+                <button class="btn btn-sm btn-primary" id="stat-apply-filter">
+                    <i class="fas fa-filter"></i> Застосувати
+                </button>
+                <button class="btn btn-sm btn-outline" id="stat-reset-filter">Скинути</button>
+            </div>
+
+            <div class="stats-row stats-row-5" id="stat-summary-row"></div>
+
+            <div class="stat-charts-row">
+                <div class="stat-chart-card stat-chart-wide">
+                    <h3>Динаміка закупок по місяцях</h3>
+                    <canvas id="stat-chart-dynamics"></canvas>
+                </div>
+                <div class="stat-chart-card">
+                    <h3>Розподіл типів анкорів</h3>
+                    <canvas id="stat-chart-types-pie"></canvas>
+                </div>
+            </div>
+
+            <div class="stat-charts-row">
+                <div class="stat-chart-card stat-chart-full">
+                    <h3>Динаміка типів анкорів по місяцях</h3>
+                    <canvas id="stat-chart-types-stacked"></canvas>
+                </div>
+            </div>
+
+            <h2 class="stat-section-title">Деталізація по URL</h2>
+            <div class="filter-bar" style="margin-bottom:16px">
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="stat-url-search" placeholder="Пошук по URL...">
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table" id="stat-url-table">
+                    <thead>
+                        <tr>
+                            <th style="width:30px"></th>
+                            <th>Цільова URL</th>
+                            <th>Посилань</th>
+                            <th>Витрачено (UAH)</th>
+                            <th>Типи анкорів</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
