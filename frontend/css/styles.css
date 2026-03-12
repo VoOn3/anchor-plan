@@ -995,3 +995,109 @@ body {
 .site-domain-link:hover {
     text-decoration: underline;
 }
+
+/* Replace site modal */
+.modal-wide {
+    max-width: 900px;
+    width: 95vw;
+}
+
+.replace-context {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+    line-height: 1.5;
+}
+
+.replace-context strong {
+    color: var(--text-primary);
+}
+
+.replace-current {
+    background: var(--bg-lighter);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.replace-current .label {
+    color: var(--text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.replace-filters-row {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.replace-sites-table-wrap {
+    max-height: 350px;
+    overflow: auto;
+}
+
+#replace-sites-table th,
+#replace-sites-table td {
+    font-size: 12px;
+    padding: 6px 10px;
+    white-space: nowrap;
+}
+
+.btn-choose-site {
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-choose-site:hover {
+    background: var(--primary-hover);
+}
+
+.replace-manual-section {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+
+.replace-manual-section h4 {
+    margin: 0 0 10px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.replace-manual-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.replace-manual-row input {
+    flex: 1;
+}
+
+.btn-replace {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    font-size: 14px;
+    transition: color 0.2s;
+}
+
+.btn-replace:hover {
+    color: var(--primary);
+}

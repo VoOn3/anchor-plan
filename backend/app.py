@@ -301,35 +301,48 @@ def match_sites(project_id):
     return jsonify(result)
 
 
-@app.route("/api/projects/<project_id>/reassign-site", methods=["POST"])
-def reassign_site(project_id):
-    """Manually reassign a specific site to a plan row."""
+@app.route("/api/projects/<project_id>/available-sites", methods=["POST"])
+def available_sites(project_id):
+    """Return scored & filtered sites for replacement modal."""
     project = get_project(project_id)
     if not project:
         return jsonify({"error": "Проект не знайдено"}), 404
 
+    from services.site_matcher import _score_sites
+    from services.site_filter import filter_sites as do_filter
+
     data = request.json or {}
-    plan_index = data.get("plan_index")
-    site_domain = data.get("site_domain", "").strip()
+    exclude_domains = set(data.get("exclude_domains", []))
 
     sites = project.get("collaborator_sites", [])
-    site = next((s for s in sites if str(s.get("Домен", "")).strip() == site_domain), None)
+    settings = project["settings"]
+    filters = settings.get("site_filters", [])
+    domain = project.get("domain", "")
 
-    if site is None:
-        return jsonify({"error": "Площадку не знайдено"}), 404
+    filtered = do_filter(sites, filters) if filters else list(sites)
+    scored = _score_sites(filtered, domain)
+    scored.sort(key=lambda x: x["_quality_score"], reverse=True)
 
-    price = site.get("Ціна розміщення стаття, UAH")
+    result = []
+    for s in scored:
+        dk = s.get("_domain_key", "")
+        if dk in exclude_domains:
+            continue
+        price = s.get("Ціна розміщення стаття, UAH")
+        result.append({
+            "domain": s.get("Домен", ""),
+            "domain_key": dk,
+            "url": s.get("URL Коллаборатора", ""),
+            "dr": s.get("DR"),
+            "traffic": s.get("Трафік на місяць"),
+            "organic": s.get("Органічний трафік"),
+            "price": price if isinstance(price, (int, float)) else 0,
+            "quality": s["_quality_score"],
+            "theme": s.get("Тематика", ""),
+            "age": s.get("Вік сайту, років"),
+        })
 
-    return jsonify({
-        "plan_index": plan_index,
-        "assigned_site": site.get("Домен", ""),
-        "site_url": site.get("URL Коллаборатора", ""),
-        "site_dr": site.get("DR"),
-        "site_traffic": site.get("Трафік на місяць"),
-        "site_organic": site.get("Органічний трафік"),
-        "site_price": price if isinstance(price, (int, float)) else 0,
-        "site_theme": site.get("Тематика", ""),
-    })
+    return jsonify({"sites": result, "total": len(result)})
 
 
 # ========== Export ==========

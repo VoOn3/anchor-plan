@@ -910,7 +910,7 @@ function renderPurchasesStats() {
 function renderPurchasesTable(assignments) {
     const tbody = document.querySelector("#purchases-table tbody");
     if (!assignments || !assignments.length) {
-        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text-muted)">Натисніть "Підібрати площадки" для підбору</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:40px;color:var(--text-muted)">Натисніть "Підібрати площадки" для підбору</td></tr>';
         return;
     }
 
@@ -949,8 +949,13 @@ function renderPurchasesTable(assignments) {
             <td>${isMatched ? Number(a.site_price).toLocaleString() + " ₴" : "—"}</td>
             <td>${qualityHtml}</td>
             <td><span class="${statusClass}">${statusText}</span></td>
+            <td><button class="btn-replace" data-plan-index="${a.plan_index}" title="Замінити площадку"><i class="fas fa-exchange-alt"></i></button></td>
         </tr>`;
     }).join("");
+
+    tbody.querySelectorAll(".btn-replace").forEach((btn) => {
+        btn.addEventListener("click", () => openReplaceSiteModal(parseInt(btn.dataset.planIndex)));
+    });
 }
 
 // Purchases filter
@@ -980,3 +985,193 @@ function filterPurchases() {
 document.getElementById("btn-export-purchases").addEventListener("click", () => {
     window.open(`${API_BASE}/projects/${projectId}/export`, "_blank");
 });
+
+// ==================== Replace Site Modal ====================
+
+let replaceState = {
+    planIndex: null,
+    allSites: [],
+};
+
+async function openReplaceSiteModal(planIndex) {
+    replaceState.planIndex = planIndex;
+    const planItem = state.plan[planIndex] || {};
+    const current = state.purchaseAssignments.find((a) => a.plan_index === planIndex);
+
+    // Context info
+    document.getElementById("replace-context").innerHTML =
+        `<strong>URL:</strong> ${shortenUrl(planItem.url || "")} &nbsp;|&nbsp; ` +
+        `<strong>Анкор:</strong> ${planItem.recommended_anchor || "—"} &nbsp;|&nbsp; ` +
+        `<strong>Тип:</strong> ${formatAnchorType(planItem.anchor_type || "")}`;
+
+    // Current site info
+    if (current && current.assigned_site) {
+        const short = current.assigned_site.replace(/^https?:\/\//, "").replace(/\/$/, "");
+        document.getElementById("replace-current").innerHTML =
+            `<span class="label">Поточна площадка:</span> ` +
+            `<strong>${short}</strong> &nbsp;|&nbsp; DR: ${current.site_dr ?? "—"} &nbsp;|&nbsp; ` +
+            `Трафік: ${current.site_organic != null ? Number(current.site_organic).toLocaleString() : "—"} &nbsp;|&nbsp; ` +
+            `Ціна: ${Number(current.site_price).toLocaleString()} ₴ &nbsp;|&nbsp; ` +
+            `Якість: ${current.site_quality}`;
+        document.getElementById("replace-current").style.display = "flex";
+    } else {
+        document.getElementById("replace-current").innerHTML =
+            `<span class="label">Поточна площадка:</span> <em>Не підібрано</em>`;
+        document.getElementById("replace-current").style.display = "flex";
+    }
+
+    // Budget hint for price filter
+    const budget = state.settings?.monthly_budget || 0;
+    const totalRows = state.plan.length || 1;
+    const avgBudget = budget > 0 ? Math.round(budget / totalRows) : 0;
+    document.getElementById("replace-max-price").value = avgBudget > 0 ? avgBudget * 2 : "";
+
+    document.getElementById("replace-search").value = "";
+    document.getElementById("replace-site-modal").style.display = "flex";
+
+    // Collect domains already used by OTHER rows
+    const excludeDomains = [];
+    for (const a of state.purchaseAssignments) {
+        if (a.plan_index !== planIndex && a.assigned_site) {
+            const dk = a.assigned_site.replace(/^https?:\/\//, "").replace(/\/$/, "").toLowerCase();
+            excludeDomains.push(dk);
+        }
+    }
+
+    // Fetch available sites
+    try {
+        const resp = await fetch(`${API_BASE}/projects/${projectId}/available-sites`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ exclude_domains: excludeDomains }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            replaceState.allSites = data.sites;
+            renderReplaceSitesTable();
+        }
+    } catch (err) {
+        console.error("Failed to load available sites:", err);
+    }
+}
+
+function renderReplaceSitesTable() {
+    const search = document.getElementById("replace-search").value.toLowerCase();
+    const maxPrice = parseFloat(document.getElementById("replace-max-price").value) || Infinity;
+
+    let sites = replaceState.allSites;
+    if (search) {
+        sites = sites.filter((s) =>
+            (s.domain || "").toLowerCase().includes(search) ||
+            (s.theme || "").toLowerCase().includes(search)
+        );
+    }
+    if (maxPrice < Infinity) {
+        sites = sites.filter((s) => (s.price || 0) <= maxPrice);
+    }
+
+    const tbody = document.querySelector("#replace-sites-table tbody");
+    if (!sites.length) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text-muted)">Нічого не знайдено</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = sites.slice(0, 150).map((s) => {
+        const short = (s.domain || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
+        const q = s.quality || 0;
+        const cls = q >= 70 ? "quality-high" : (q >= 40 ? "quality-mid" : "quality-low");
+        return `
+        <tr>
+            <td>${s.url ? `<a href="${s.url}" target="_blank" class="site-domain-link">${short}</a>` : short}</td>
+            <td>${s.dr ?? "—"}</td>
+            <td>${s.organic != null ? Number(s.organic).toLocaleString() : "—"}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${s.theme || ""}">${s.theme || "—"}</td>
+            <td>${s.age ?? "—"}</td>
+            <td>${Number(s.price || 0).toLocaleString()} ₴</td>
+            <td><div class="quality-bar"><div class="quality-bar-fill"><span class="${cls}" style="width:${q}%"></span></div><span>${q}</span></div></td>
+            <td><button class="btn-choose-site" data-domain-key="${s.domain_key}" data-domain="${s.domain}" data-url="${s.url || ""}" data-dr="${s.dr ?? ""}" data-traffic="${s.traffic ?? ""}" data-organic="${s.organic ?? ""}" data-price="${s.price || 0}" data-quality="${q}" data-theme="${s.theme || ""}">Обрати</button></td>
+        </tr>`;
+    }).join("");
+
+    tbody.querySelectorAll(".btn-choose-site").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            applySiteReplacement({
+                assigned_site: btn.dataset.domain,
+                site_url: btn.dataset.url,
+                site_dr: btn.dataset.dr ? parseFloat(btn.dataset.dr) : null,
+                site_traffic: btn.dataset.traffic ? parseFloat(btn.dataset.traffic) : null,
+                site_organic: btn.dataset.organic ? parseFloat(btn.dataset.organic) : null,
+                site_price: parseFloat(btn.dataset.price) || 0,
+                site_quality: parseFloat(btn.dataset.quality) || 0,
+                site_theme: btn.dataset.theme,
+            });
+        });
+    });
+}
+
+function applySiteReplacement(siteData) {
+    const idx = replaceState.planIndex;
+    const aIdx = state.purchaseAssignments.findIndex((a) => a.plan_index === idx);
+    if (aIdx === -1) return;
+
+    const oldPrice = state.purchaseAssignments[aIdx].site_price || 0;
+    const newPrice = siteData.site_price || 0;
+
+    state.purchaseAssignments[aIdx] = {
+        plan_index: idx,
+        ...siteData,
+    };
+
+    // Recalculate stats
+    if (state.purchaseStats) {
+        const wasMatched = oldPrice > 0 || state.purchaseAssignments[aIdx].assigned_site;
+        state.purchaseStats.total_cost = state.purchaseStats.total_cost - oldPrice + newPrice;
+
+        const matched = state.purchaseAssignments.filter((a) => !!a.assigned_site).length;
+        state.purchaseStats.matched = matched;
+        state.purchaseStats.not_matched = state.purchaseStats.total_plan - matched;
+
+        const budget = state.settings?.monthly_budget || 0;
+        if (budget > 0) {
+            state.purchaseStats.remaining_budget = Math.round((budget - state.purchaseStats.total_cost) * 100) / 100;
+        }
+    }
+
+    renderPurchases();
+    closeReplaceSiteModal();
+}
+
+// Manual site entry
+document.getElementById("replace-manual-btn").addEventListener("click", () => {
+    const domain = document.getElementById("replace-manual-domain").value.trim();
+    const price = parseFloat(document.getElementById("replace-manual-price").value) || 0;
+    if (!domain) { alert("Введіть домен"); return; }
+
+    applySiteReplacement({
+        assigned_site: domain,
+        site_url: null,
+        site_dr: null,
+        site_traffic: null,
+        site_organic: null,
+        site_price: price,
+        site_quality: 0,
+        site_theme: "",
+        is_manual: true,
+    });
+});
+
+// Close modal
+function closeReplaceSiteModal() {
+    document.getElementById("replace-site-modal").style.display = "none";
+    replaceState.planIndex = null;
+    replaceState.allSites = [];
+}
+
+document.getElementById("replace-modal-close").addEventListener("click", closeReplaceSiteModal);
+document.getElementById("replace-site-modal").addEventListener("click", (e) => {
+    if (e.target === document.getElementById("replace-site-modal")) closeReplaceSiteModal();
+});
+
+// Live filters in modal
+document.getElementById("replace-search").addEventListener("input", renderReplaceSitesTable);
+document.getElementById("replace-max-price").addEventListener("input", renderReplaceSitesTable);
