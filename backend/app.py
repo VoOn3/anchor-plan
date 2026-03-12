@@ -7,6 +7,7 @@ from services.analyzer import analyze_pages, classify_anchor
 from services.planner import generate_anchor_plan, calculate_current_distribution
 from services.exporter import export_to_xlsx
 from services.site_filter import filter_sites
+from services.site_matcher import match_sites_to_plan
 from services.database import (
     init_db, list_projects_with_stats, get_project,
     create_project, update_project, delete_project,
@@ -272,6 +273,62 @@ def filter_collaborator_sites(project_id):
         "sites": filtered[:200],
         "total_cost": round(total_cost, 2),
         "within_budget": len(within_budget) if budget > 0 else len(filtered),
+    })
+
+
+# ========== Match Sites ==========
+
+@app.route("/api/projects/<project_id>/match-sites", methods=["POST"])
+def match_sites(project_id):
+    project = get_project(project_id)
+    if not project:
+        return jsonify({"error": "Проект не знайдено"}), 404
+
+    plan = project["plan"]
+    sites = project.get("collaborator_sites", [])
+    settings = project["settings"]
+    filters = settings.get("site_filters", [])
+    budget = settings.get("monthly_budget", 0)
+    domain = project.get("domain", "")
+
+    if not sites:
+        return jsonify({"error": "Спочатку завантажте файл Collaborator"}), 400
+
+    if not plan:
+        return jsonify({"error": "Анкор-план порожній"}), 400
+
+    result = match_sites_to_plan(plan, sites, filters, budget, domain)
+    return jsonify(result)
+
+
+@app.route("/api/projects/<project_id>/reassign-site", methods=["POST"])
+def reassign_site(project_id):
+    """Manually reassign a specific site to a plan row."""
+    project = get_project(project_id)
+    if not project:
+        return jsonify({"error": "Проект не знайдено"}), 404
+
+    data = request.json or {}
+    plan_index = data.get("plan_index")
+    site_domain = data.get("site_domain", "").strip()
+
+    sites = project.get("collaborator_sites", [])
+    site = next((s for s in sites if str(s.get("Домен", "")).strip() == site_domain), None)
+
+    if site is None:
+        return jsonify({"error": "Площадку не знайдено"}), 404
+
+    price = site.get("Ціна розміщення стаття, UAH")
+
+    return jsonify({
+        "plan_index": plan_index,
+        "assigned_site": site.get("Домен", ""),
+        "site_url": site.get("URL Коллаборатора", ""),
+        "site_dr": site.get("DR"),
+        "site_traffic": site.get("Трафік на місяць"),
+        "site_organic": site.get("Органічний трафік"),
+        "site_price": price if isinstance(price, (int, float)) else 0,
+        "site_theme": site.get("Тематика", ""),
     })
 
 

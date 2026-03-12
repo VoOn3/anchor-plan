@@ -18,6 +18,8 @@ let state = {
     projectName: "",
     collabColumns: [],
     collabCount: 0,
+    purchaseAssignments: [],
+    purchaseStats: null,
 };
 
 const REC_LABELS = {
@@ -846,3 +848,135 @@ function renderSitesTable(sites) {
             return `<td>${v}</td>`;
         }).join("")}</tr>`).join("");
 }
+
+// ==================== Purchases ====================
+
+document.getElementById("btn-match-sites").addEventListener("click", matchSites);
+document.getElementById("btn-rematch-sites").addEventListener("click", matchSites);
+
+async function matchSites() {
+    const btn = document.getElementById("btn-match-sites");
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Підбираємо...';
+
+    try {
+        const resp = await fetch(`${API_BASE}/projects/${projectId}/match-sites`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+        });
+        const data = await resp.json();
+        if (!resp.ok) { alert(data.error || "Помилка"); return; }
+
+        state.purchaseAssignments = data.assignments;
+        state.purchaseStats = {
+            total_plan: data.total_plan,
+            matched: data.matched,
+            not_matched: data.not_matched,
+            total_cost: data.total_cost,
+            remaining_budget: data.remaining_budget,
+            filtered_sites_count: data.filtered_sites_count,
+        };
+
+        renderPurchases();
+        document.getElementById("btn-rematch-sites").style.display = "inline-flex";
+    } catch (err) {
+        alert("Помилка: " + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-magic"></i> Підібрати площадки';
+    }
+}
+
+function renderPurchases() {
+    renderPurchasesStats();
+    renderPurchasesTable(state.purchaseAssignments);
+}
+
+function renderPurchasesStats() {
+    const stats = state.purchaseStats;
+    if (!stats) return;
+
+    const budget = state.settings?.monthly_budget || 0;
+    document.getElementById("purchases-stats-row").innerHTML = `
+        <div class="stat-card total"><div class="stat-value">${stats.total_plan}</div><div class="stat-label">Всього в плані</div></div>
+        <div class="stat-card high"><div class="stat-value">${stats.matched}</div><div class="stat-label">Підібрано</div></div>
+        <div class="stat-card low"><div class="stat-value">${stats.not_matched}</div><div class="stat-label">Не підібрано</div></div>
+        <div class="stat-card medium"><div class="stat-value">${stats.total_cost.toLocaleString()} ₴</div><div class="stat-label">Загальна вартість</div></div>
+        ${budget > 0 ? `<div class="stat-card"><div class="stat-value">${stats.remaining_budget.toLocaleString()} ₴</div><div class="stat-label">Залишок бюджету</div></div>` : ""}
+        <div class="stat-card"><div class="stat-value">${stats.filtered_sites_count}</div><div class="stat-label">Доступних площадок</div></div>
+    `;
+}
+
+function renderPurchasesTable(assignments) {
+    const tbody = document.querySelector("#purchases-table tbody");
+    if (!assignments || !assignments.length) {
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text-muted)">Натисніть "Підібрати площадки" для підбору</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = assignments.map((a, idx) => {
+        const planItem = state.plan[a.plan_index] || {};
+        const order = planItem.purchase_order || 6;
+        const isMatched = !!a.assigned_site;
+        const statusClass = isMatched ? "purchase-status-matched" : "purchase-status-not-matched";
+        const statusText = isMatched ? "Підібрано" : "Не підібрано";
+
+        let qualityHtml = "—";
+        if (isMatched && a.site_quality) {
+            const q = a.site_quality;
+            const cls = q >= 70 ? "quality-high" : (q >= 40 ? "quality-mid" : "quality-low");
+            qualityHtml = `<div class="quality-bar"><div class="quality-bar-fill"><span class="${cls}" style="width:${q}%"></span></div><span>${q}</span></div>`;
+        }
+
+        let domainHtml = "—";
+        if (isMatched && a.assigned_site) {
+            const short = a.assigned_site.replace(/^https?:\/\//, "").replace(/\/$/, "");
+            domainHtml = a.site_url
+                ? `<a href="${a.site_url}" target="_blank" class="site-domain-link">${short}</a>`
+                : short;
+        }
+
+        return `
+        <tr>
+            <td><span class="order-badge order-${order}">${order}</span></td>
+            <td class="url-cell"><a href="detail.html?project=${encodeURIComponent(projectId)}&url=${encodeURIComponent(planItem.url || "")}" title="${planItem.url || ""}">${shortenUrl(planItem.url || "")}</a></td>
+            <td>${planItem.recommended_anchor || "—"}</td>
+            <td><span class="badge badge-${planItem.anchor_type || ""}">${formatAnchorType(planItem.anchor_type || "")}</span></td>
+            <td>${domainHtml}</td>
+            <td>${isMatched ? (a.site_dr ?? "—") : "—"}</td>
+            <td>${isMatched && a.site_organic != null ? Number(a.site_organic).toLocaleString() : "—"}</td>
+            <td>${isMatched ? (a.site_theme || "—") : "—"}</td>
+            <td>${isMatched ? Number(a.site_price).toLocaleString() + " ₴" : "—"}</td>
+            <td>${qualityHtml}</td>
+            <td><span class="${statusClass}">${statusText}</span></td>
+        </tr>`;
+    }).join("");
+}
+
+// Purchases filter
+document.getElementById("purchases-search").addEventListener("input", filterPurchases);
+document.getElementById("purchases-status-filter").addEventListener("change", filterPurchases);
+
+function filterPurchases() {
+    const search = document.getElementById("purchases-search").value.toLowerCase();
+    const status = document.getElementById("purchases-status-filter").value;
+
+    let filtered = state.purchaseAssignments;
+    if (search) {
+        filtered = filtered.filter((a) => {
+            const planItem = state.plan[a.plan_index] || {};
+            return (planItem.url || "").toLowerCase().includes(search) ||
+                   (planItem.recommended_anchor || "").toLowerCase().includes(search) ||
+                   (a.assigned_site || "").toLowerCase().includes(search);
+        });
+    }
+    if (status === "matched") filtered = filtered.filter((a) => !!a.assigned_site);
+    if (status === "not_matched") filtered = filtered.filter((a) => !a.assigned_site);
+
+    renderPurchasesTable(filtered);
+}
+
+// Export purchases
+document.getElementById("btn-export-purchases").addEventListener("click", () => {
+    window.open(`${API_BASE}/projects/${projectId}/export`, "_blank");
+});

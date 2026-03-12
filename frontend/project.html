@@ -33,6 +33,10 @@
                 <i class="fas fa-list-check"></i>
                 <span>Анкор-план</span>
             </li>
+            <li data-section="purchases" class="disabled">
+                <i class="fas fa-shopping-cart"></i>
+                <span>Закупки</span>
+            </li>
             <li data-section="settings" class="disabled">
                 <i class="fas fa-sliders"></i>
                 <span>Налаштування</span>
@@ -236,6 +240,66 @@
                             <th>Динаміка</th>
                             <th>Обґрунтування</th>
                             <th>Дії</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Purchases Section -->
+        <section id="purchases-section" class="section">
+            <div class="section-header">
+                <div class="section-header-row">
+                    <div>
+                        <h1>Закупки</h1>
+                        <p>Підбір площадок під анкор-план з урахуванням бюджету та фільтрів</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn btn-primary" id="btn-match-sites">
+                            <i class="fas fa-magic"></i> Підібрати площадки
+                        </button>
+                        <button class="btn btn-outline" id="btn-rematch-sites" style="display:none">
+                            <i class="fas fa-sync-alt"></i> Перепідібрати
+                        </button>
+                        <button class="btn btn-outline" id="btn-export-purchases">
+                            <i class="fas fa-file-excel"></i> Експорт
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stats-row" id="purchases-stats-row"></div>
+
+            <div class="filter-bar">
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="purchases-search" placeholder="Пошук по URL, анкору або площадці...">
+                </div>
+                <div class="filter-group">
+                    <select id="purchases-status-filter">
+                        <option value="">Всі</option>
+                        <option value="matched">Підібрано</option>
+                        <option value="not_matched">Не підібрано</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="table-wrap">
+                <table class="data-table" id="purchases-table">
+                    <thead>
+                        <tr>
+                            <th>Черга</th>
+                            <th>URL</th>
+                            <th>Анкор</th>
+                            <th>Тип</th>
+                            <th>Площадка</th>
+                            <th>DR</th>
+                            <th>Трафік</th>
+                            <th>Тематика</th>
+                            <th>Ціна (UAH)</th>
+                            <th>Якість</th>
+                            <th>Статус</th>
                         </tr>
                     </thead>
                     <tbody></tbody>

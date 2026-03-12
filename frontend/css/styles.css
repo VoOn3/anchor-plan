@@ -934,3 +934,64 @@ body {
     border-radius: 4px;
     margin-left: 6px;
 }
+
+/* Purchases section */
+.purchase-status-matched {
+    color: var(--success);
+    font-weight: 600;
+}
+
+.purchase-status-not-matched {
+    color: var(--danger);
+    font-weight: 600;
+}
+
+.quality-bar {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.quality-bar-fill {
+    width: 60px;
+    height: 6px;
+    background: var(--bg-lighter);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+}
+
+.quality-bar-fill span {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s;
+}
+
+.quality-high { background: var(--success); }
+.quality-mid { background: var(--warning); }
+.quality-low { background: var(--danger); }
+
+.purchases-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+#purchases-table th, #purchases-table td {
+    font-size: 13px;
+    padding: 8px 10px;
+}
+
+#purchases-table .url-cell a {
+    max-width: 200px;
+}
+
+.site-domain-link {
+    color: var(--primary);
+    text-decoration: none;
+}
+.site-domain-link:hover {
+    text-decoration: underline;
+}
