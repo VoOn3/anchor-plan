@@ -314,6 +314,72 @@ def edit_plan_row(project_id):
     return jsonify({"plan": plan})
 
 
+@app.route("/api/projects/<project_id>/plan/delete", methods=["POST"])
+def delete_plan_rows(project_id):
+    project = get_project(project_id)
+    if not project:
+        return jsonify({"error": "Проект не знайдено"}), 404
+
+    data = request.json or {}
+    indexes = set(data.get("indexes", []))
+
+    if not indexes:
+        return jsonify({"error": "Не вказано індекси для видалення"}), 400
+
+    plan = project["plan"]
+    new_plan = [item for i, item in enumerate(plan) if i not in indexes]
+
+    update_project(project_id, plan=new_plan)
+    return jsonify({"plan": new_plan, "deleted": len(plan) - len(new_plan)})
+
+
+@app.route("/api/projects/<project_id>/plan/add", methods=["POST"])
+def add_plan_row(project_id):
+    project = get_project(project_id)
+    if not project:
+        return jsonify({"error": "Проект не знайдено"}), 404
+
+    data = request.json or {}
+    url = data.get("url", "").strip()
+    anchor = data.get("anchor", "").strip()
+    anchor_type = data.get("anchor_type", "partial_match")
+    target_keyword = data.get("target_keyword", "").strip()
+    rationale = data.get("rationale", "").strip()
+
+    if not url or not anchor:
+        return jsonify({"error": "URL та анкор обов'язкові"}), 400
+
+    page = next((p for p in project["analysis"] if p["url"] == url), None)
+
+    best_kw = page.get("best_keyword") if page else None
+    recommendation = page.get("recommendation", "not_recommended") if page else "not_recommended"
+
+    from services.planner import PURCHASE_ORDER
+    purchase_order = PURCHASE_ORDER.get(recommendation, 6)
+
+    new_row = {
+        "url": url,
+        "priority": page["priority"] if page else "medium",
+        "priority_score": page["priority_score"] if page else 0,
+        "recommendation": recommendation,
+        "purchase_order": purchase_order,
+        "recommended_anchor": anchor,
+        "anchor_type": anchor_type,
+        "target_keyword": target_keyword,
+        "current_position": best_kw["current_position"] if best_kw else None,
+        "dynamics": best_kw["dynamics_label"] if best_kw else "n/a",
+        "rationale": rationale or "Додано вручну",
+        "is_manual": True,
+    }
+
+    plan = project["plan"]
+    plan.append(new_row)
+    plan.sort(key=lambda x: (x.get("purchase_order", 6), -x.get("priority_score", 0)))
+
+    update_project(project_id, plan=plan)
+    return jsonify({"plan": plan})
+
+
 # ========== URL Detail ==========
 
 @app.route("/api/projects/<project_id>/url-detail", methods=["POST"])

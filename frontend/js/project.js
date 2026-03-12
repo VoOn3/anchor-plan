@@ -13,6 +13,7 @@ let state = {
     plan: [],
     settings: null,
     selectedUrls: new Set(),
+    selectedPlanRows: new Set(),
     editingRowIndex: null,
     projectName: "",
     collabColumns: [],
@@ -341,19 +342,26 @@ function renderPlan() { renderPlanTable(state.plan); }
 
 function renderPlanTable(data) {
     const tbody = document.querySelector("#plan-table tbody");
-    tbody.innerHTML = data.map((item, idx) => {
+    const realIndexes = data.map((item) => state.plan.indexOf(item));
+
+    tbody.innerHTML = data.map((item, localIdx) => {
+        const realIdx = realIndexes[localIdx];
         const order = item.purchase_order || 6;
+        const checked = state.selectedPlanRows.has(realIdx) ? "checked" : "";
+        const rowCls = [item.is_manual ? "manual-edit" : "", checked ? "row-selected" : ""].filter(Boolean).join(" ");
+        const manualBadge = item.is_manual ? '<span class="badge-manual">Ручний</span>' : "";
         return `
-        <tr class="${item.is_manual ? "manual-edit" : ""}">
+        <tr class="${rowCls}">
+            <td><input type="checkbox" class="plan-cb" data-idx="${realIdx}" ${checked}></td>
             <td><span class="order-badge order-${order}">${order}</span></td>
             <td class="url-cell"><a href="detail.html?project=${encodeURIComponent(projectId)}&url=${encodeURIComponent(item.url)}" title="${item.url}">${shortenUrl(item.url)}</a></td>
-            <td class="editable-cell" data-row="${idx}">${item.recommended_anchor}</td>
+            <td class="editable-cell" data-row="${realIdx}">${item.recommended_anchor}${manualBadge}</td>
             <td><span class="badge badge-${item.anchor_type}">${formatAnchorType(item.anchor_type)}</span></td>
             <td>${item.target_keyword || "—"}</td>
             <td>${item.current_position ?? "—"}</td>
             <td class="dynamics-${item.dynamics}">${getDynamicsIcon(item.dynamics)} ${item.dynamics}</td>
             <td class="rationale-text">${item.rationale || item.comment || ""}</td>
-            <td><button class="btn-icon edit-row-btn" data-row="${idx}" title="Редагувати"><i class="fas fa-pen"></i></button></td>
+            <td><button class="btn-icon edit-row-btn" data-row="${realIdx}" title="Редагувати"><i class="fas fa-pen"></i></button></td>
         </tr>`;
     }).join("");
 
@@ -361,6 +369,25 @@ function renderPlanTable(data) {
         btn.addEventListener("click", () => openEditModal(parseInt(btn.dataset.row))));
     tbody.querySelectorAll(".editable-cell").forEach((cell) =>
         cell.addEventListener("dblclick", () => openEditModal(parseInt(cell.dataset.row))));
+
+    tbody.querySelectorAll(".plan-cb").forEach((cb) => {
+        cb.addEventListener("change", () => {
+            const idx = parseInt(cb.dataset.idx);
+            if (cb.checked) state.selectedPlanRows.add(idx);
+            else state.selectedPlanRows.delete(idx);
+            cb.closest("tr").classList.toggle("row-selected", cb.checked);
+            updatePlanSelectionBar();
+        });
+    });
+
+    updatePlanSelectionBar();
+}
+
+function updatePlanSelectionBar() {
+    const bar = document.getElementById("plan-selection-bar");
+    const count = state.selectedPlanRows.size;
+    document.getElementById("plan-selection-count").textContent = `Обрано: ${count}`;
+    bar.style.display = count > 0 ? "flex" : "none";
 }
 
 // Plan filters
@@ -525,6 +552,128 @@ function getDynamicsIcon(label) {
 function formatAnchorType(type) {
     return { exact_match: "Exact", partial_match: "Partial", branded: "Brand", generic: "Generic", url: "URL" }[type] || type;
 }
+
+// --- Plan Select All ---
+document.getElementById("plan-select-all-cb").addEventListener("change", (e) => {
+    const checked = e.target.checked;
+    document.querySelectorAll(".plan-cb").forEach((cb) => {
+        const idx = parseInt(cb.dataset.idx);
+        cb.checked = checked;
+        if (checked) state.selectedPlanRows.add(idx);
+        else state.selectedPlanRows.delete(idx);
+        cb.closest("tr").classList.toggle("row-selected", checked);
+    });
+    updatePlanSelectionBar();
+});
+
+// --- Delete Selected ---
+document.getElementById("btn-delete-selected").addEventListener("click", () => {
+    if (state.selectedPlanRows.size === 0) return;
+    document.getElementById("confirm-delete-text").textContent =
+        `Видалити ${state.selectedPlanRows.size} анкор(ів) з плану?`;
+    document.getElementById("confirm-delete-modal").style.display = "flex";
+});
+
+document.getElementById("confirm-delete-close").addEventListener("click", () => {
+    document.getElementById("confirm-delete-modal").style.display = "none";
+});
+document.getElementById("confirm-delete-cancel").addEventListener("click", () => {
+    document.getElementById("confirm-delete-modal").style.display = "none";
+});
+document.getElementById("confirm-delete-modal").addEventListener("click", (e) => {
+    if (e.target === document.getElementById("confirm-delete-modal"))
+        document.getElementById("confirm-delete-modal").style.display = "none";
+});
+
+document.getElementById("confirm-delete-ok").addEventListener("click", async () => {
+    document.getElementById("confirm-delete-modal").style.display = "none";
+    const indexes = [...state.selectedPlanRows];
+    const btn = document.getElementById("btn-delete-selected");
+    btn.disabled = true;
+
+    try {
+        const resp = await fetch(`${API_BASE}/projects/${projectId}/plan/delete`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ indexes }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            state.plan = data.plan;
+            state.selectedPlanRows.clear();
+            document.getElementById("plan-select-all-cb").checked = false;
+            renderPlan();
+        } else {
+            alert(data.error || "Помилка");
+        }
+    } catch (err) {
+        alert("Помилка: " + err.message);
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+// --- Add Anchor Modal ---
+document.getElementById("btn-add-anchor").addEventListener("click", () => {
+    const urlSelect = document.getElementById("add-anchor-url");
+    const urls = state.selectedUrls.size > 0
+        ? [...state.selectedUrls]
+        : state.analysis.map((p) => p.url);
+
+    urlSelect.innerHTML = urls.map((u) =>
+        `<option value="${u}">${shortenUrl(u)}</option>`
+    ).join("");
+
+    document.getElementById("add-anchor-text").value = "";
+    document.getElementById("add-anchor-type").value = "partial_match";
+    document.getElementById("add-anchor-keyword").value = "";
+    document.getElementById("add-anchor-rationale").value = "";
+    document.getElementById("add-modal").style.display = "flex";
+});
+
+document.getElementById("add-modal-close").addEventListener("click", () => {
+    document.getElementById("add-modal").style.display = "none";
+});
+document.getElementById("add-modal-cancel").addEventListener("click", () => {
+    document.getElementById("add-modal").style.display = "none";
+});
+document.getElementById("add-modal").addEventListener("click", (e) => {
+    if (e.target === document.getElementById("add-modal"))
+        document.getElementById("add-modal").style.display = "none";
+});
+
+document.getElementById("add-modal-save").addEventListener("click", async () => {
+    const url = document.getElementById("add-anchor-url").value;
+    const anchor = document.getElementById("add-anchor-text").value.trim();
+    const anchorType = document.getElementById("add-anchor-type").value;
+    const targetKeyword = document.getElementById("add-anchor-keyword").value.trim();
+    const rationale = document.getElementById("add-anchor-rationale").value.trim();
+
+    if (!anchor) { alert("Введіть текст анкору"); return; }
+
+    const btn = document.getElementById("add-modal-save");
+    btn.disabled = true;
+
+    try {
+        const resp = await fetch(`${API_BASE}/projects/${projectId}/plan/add`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url, anchor, anchor_type: anchorType, target_keyword: targetKeyword, rationale }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            state.plan = data.plan;
+            renderPlan();
+            document.getElementById("add-modal").style.display = "none";
+        } else {
+            alert(data.error || "Помилка");
+        }
+    } catch (err) {
+        alert("Помилка: " + err.message);
+    } finally {
+        btn.disabled = false;
+    }
+});
 
 // --- Collaborator Upload ---
 document.getElementById("btn-upload-collab").addEventListener("click", () => {
