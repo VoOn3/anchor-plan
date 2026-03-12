@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anchor Plan Builder</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="sidebar-logo">
+            <i class="fas fa-anchor"></i>
+            <span>Anchor Plan</span>
+        </div>
+        <ul class="sidebar-menu">
+            <li data-section="projects-link">
+                <a href="index.html" class="sidebar-link">
+                    <i class="fas fa-arrow-left"></i>
+                    <span>Проекти</span>
+                </a>
+            </li>
+            <li class="active" data-section="upload">
+                <i class="fas fa-cloud-upload-alt"></i>
+                <span>Завантаження</span>
+            </li>
+            <li data-section="dashboard" class="disabled">
+                <i class="fas fa-chart-bar"></i>
+                <span>Аналіз</span>
+            </li>
+            <li data-section="plan" class="disabled">
+                <i class="fas fa-list-check"></i>
+                <span>Анкор-план</span>
+            </li>
+            <li data-section="settings" class="disabled">
+                <i class="fas fa-sliders"></i>
+                <span>Налаштування</span>
+            </li>
+        </ul>
+    </nav>
+
+    <main class="content">
+        <!-- Upload Section -->
+        <section id="upload-section" class="section active">
+            <div class="section-header">
+                <h1>Завантаження даних</h1>
+                <p>Завантажте файл позицій та вигрузку з Ahrefs для побудови анкор-плану</p>
+            </div>
+
+            <div class="upload-grid">
+                <div class="upload-card" id="positions-upload">
+                    <div class="upload-dropzone" data-input="positions-file">
+                        <i class="fas fa-chart-line"></i>
+                        <h3>Реєстр позицій</h3>
+                        <p>CSV або XLSX файл з позиціями ключових слів</p>
+                        <span class="upload-hint">Колонки: URL | Keyword | Дата1 | Дата2 | ...</span>
+                        <input type="file" id="positions-file" accept=".csv,.xlsx,.xls" hidden>
+                        <button class="btn btn-outline">Обрати файл</button>
+                    </div>
+                    <div class="upload-status" id="positions-status"></div>
+                </div>
+
+                <div class="upload-card" id="ahrefs-upload">
+                    <div class="upload-dropzone" data-input="ahrefs-file">
+                        <i class="fas fa-link"></i>
+                        <h3>Вигрузка Ahrefs</h3>
+                        <p>Backlinks або Anchors report з Ahrefs</p>
+                        <span class="upload-hint">Колонки: Target URL | Anchor | Referring Page | ...</span>
+                        <input type="file" id="ahrefs-file" accept=".csv,.xlsx,.xls" hidden>
+                        <button class="btn btn-outline">Обрати файл</button>
+                    </div>
+                    <div class="upload-status" id="ahrefs-status"></div>
+                </div>
+            </div>
+
+            <div class="brand-input-wrap">
+                <label for="brand-name">Назва бренду (необов'язково)</label>
+                <input type="text" id="brand-name" placeholder="Наприклад: MyBrand або mybrand.com">
+                <span class="input-hint">Використовується для класифікації брендових анкорів</span>
+            </div>
+
+            <button class="btn btn-primary btn-lg" id="analyze-btn" disabled>
+                <i class="fas fa-magic"></i>
+                Побудувати анкор-план
+            </button>
+
+            <div class="loader" id="loader" style="display:none">
+                <div class="spinner"></div>
+                <span>Аналізуємо дані...</span>
+            </div>
+        </section>
+
+        <!-- Dashboard Section -->
+        <section id="dashboard-section" class="section">
+            <div class="section-header">
+                <h1>Аналіз сторінок</h1>
+                <p>Зведена інформація по кожному URL: позиції, анкорний профіль, пріоритет</p>
+            </div>
+
+            <div class="stats-row" id="stats-row"></div>
+
+            <!-- Selection Action Bar -->
+            <div class="selection-bar" id="selection-bar" style="display:none">
+                <div class="selection-info">
+                    <span id="selection-count">Обрано: 0 з 0</span>
+                </div>
+                <div class="selection-actions">
+                    <button class="btn btn-sm btn-outline" id="btn-accept-recommended">
+                        <i class="fas fa-check-double"></i> Рекомендовані
+                    </button>
+                    <button class="btn btn-sm btn-outline" id="btn-include-potential">
+                        <i class="fas fa-plus-circle"></i> + Потенційні
+                    </button>
+                    <button class="btn btn-sm btn-outline" id="btn-select-all">
+                        <i class="fas fa-check-square"></i> Всі
+                    </button>
+                    <button class="btn btn-sm btn-outline" id="btn-select-none">
+                        <i class="fas fa-square"></i> Зняти
+                    </button>
+                    <button class="btn btn-sm btn-primary" id="btn-generate-plan">
+                        <i class="fas fa-magic"></i> Сформувати анкор-план
+                    </button>
+                </div>
+            </div>
+
+            <div class="filter-bar">
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="dashboard-search" placeholder="Пошук по URL або ключу...">
+                </div>
+                <div class="filter-group">
+                    <select id="priority-filter">
+                        <option value="">Всі пріоритети</option>
+                        <option value="high">Високий</option>
+                        <option value="medium">Середній</option>
+                        <option value="low">Низький</option>
+                    </select>
+                    <select id="recommendation-filter">
+                        <option value="">Всі рекомендації</option>
+                        <option value="priority">Пріоритетно</option>
+                        <option value="recommended">Рекомендовано</option>
+                        <option value="needs_support">Потребує підтримки</option>
+                        <option value="has_potential">Має потенціал</option>
+                        <option value="observe">Спостерігати</option>
+                        <option value="not_recommended">Не рекомендовано</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="table-wrap">
+                <table class="data-table" id="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th style="width:40px"><input type="checkbox" id="select-all-cb"></th>
+                            <th>URL</th>
+                            <th>Рекомендація</th>
+                            <th>Пріоритет</th>
+                            <th>Кращий ключ</th>
+                            <th>Позиція</th>
+                            <th>Динаміка</th>
+                            <th>Беклінки</th>
+                            <th>Dofollow</th>
+                            <th>Унік. анкорів</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Plan Section -->
+        <section id="plan-section" class="section">
+            <div class="section-header">
+                <div class="section-header-row">
+                    <div>
+                        <h1>Анкор-план</h1>
+                        <p>Рекомендовані анкори для закупки посилань</p>
+                    </div>
+                    <button class="btn btn-primary" id="export-btn">
+                        <i class="fas fa-file-excel"></i>
+                        Експорт XLSX
+                    </button>
+                </div>
+            </div>
+
+            <div class="filter-bar">
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="plan-search" placeholder="Пошук по URL, анкору або ключу...">
+                </div>
+                <div class="filter-group">
+                    <select id="plan-priority-filter">
+                        <option value="">Всі пріоритети</option>
+                        <option value="high">Високий</option>
+                        <option value="medium">Середній</option>
+                        <option value="low">Низький</option>
+                    </select>
+                    <select id="plan-type-filter">
+                        <option value="">Всі типи анкорів</option>
+                        <option value="exact_match">Exact Match</option>
+                        <option value="partial_match">Partial Match</option>
+                        <option value="branded">Branded</option>
+                        <option value="generic">Generic</option>
+                        <option value="url">URL</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="table-wrap">
+                <table class="data-table" id="plan-table">
+                    <thead>
+                        <tr>
+                            <th>Черга</th>
+                            <th>URL</th>
+                            <th>Рекомендований анкор</th>
+                            <th>Тип</th>
+                            <th>Цільовий ключ</th>
+                            <th>Позиція</th>
+                            <th>Динаміка</th>
+                            <th>Обґрунтування</th>
+                            <th>Дії</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Settings Section -->
+        <section id="settings-section" class="section">
+            <div class="section-header">
+                <h1>Налаштування</h1>
+                <p>Зміна параметрів генерації анкор-плану</p>
+            </div>
+
+            <div class="settings-grid">
+                <div class="settings-card">
+                    <h3><i class="fas fa-wallet"></i> Бюджет та обсяг</h3>
+                    <div class="settings-fields">
+                        <div class="field-row">
+                            <label>Місячний бюджет (UAH)</label>
+                            <input type="number" id="settings-budget" min="0" value="0" style="width:120px">
+                            <span class="input-hint-inline">0 = без обмеження</span>
+                        </div>
+                        <div class="field-row">
+                            <label>Планова к-сть посилань</label>
+                            <input type="number" id="settings-planned-links" min="0" value="0" style="width:120px">
+                            <span class="input-hint-inline">0 = за формулою (посилань на стор.)</span>
+                        </div>
+                        <div class="field-row">
+                            <label>Посилань на сторінку</label>
+                            <input type="number" id="settings-links-per-page" min="1" max="20" value="3" style="width:60px">
+                            <span class="input-hint-inline">якщо планова к-сть = 0</span>
+                        </div>
+                        <div class="field-row">
+                            <label>Назва бренду</label>
+                            <input type="text" id="settings-brand" placeholder="MyBrand">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-card">
+                    <h3><i class="fas fa-chart-pie"></i> Розподіл анкорів (%)</h3>
+                    <div class="settings-fields" id="distribution-settings"></div>
+                </div>
+
+                <div class="settings-card">
+                    <h3><i class="fas fa-bullseye"></i> Діапазони пріоритетів</h3>
+                    <div class="settings-fields" id="priority-settings"></div>
+                </div>
+            </div>
+
+            <div class="settings-grid" style="margin-top:20px">
+                <div class="settings-card full-width">
+                    <h3><i class="fas fa-store"></i> Площадки (Collaborator)</h3>
+                    <div class="collab-upload-row">
+                        <input type="file" id="collaborator-file" accept=".csv,.xlsx,.xls" hidden>
+                        <button class="btn btn-outline" id="btn-upload-collab">
+                            <i class="fas fa-upload"></i> Завантажити файл Collaborator
+                        </button>
+                        <span id="collab-status" class="collab-status"></span>
+                    </div>
+
+                    <div id="site-filters-section" style="display:none">
+                        <h4 style="margin:16px 0 8px"><i class="fas fa-filter"></i> Фільтри площадок</h4>
+                        <div id="filters-list"></div>
+                        <button class="btn btn-sm btn-outline" id="btn-add-filter" style="margin-top:8px">
+                            <i class="fas fa-plus"></i> Додати фільтр
+                        </button>
+                        <button class="btn btn-sm btn-primary" id="btn-apply-filters" style="margin-top:8px;margin-left:8px">
+                            <i class="fas fa-search"></i> Застосувати
+                        </button>
+                        <div id="filter-results" style="margin-top:12px"></div>
+                        <div class="table-wrap" id="sites-table-wrap" style="display:none;margin-top:12px;max-height:400px;overflow:auto">
+                            <table class="data-table" id="sites-table">
+                                <thead><tr id="sites-thead-row"></tr></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn btn-primary btn-lg" id="recalculate-btn" style="margin-top:24px">
+                <i class="fas fa-sync-alt"></i>
+                Перерахувати план
+            </button>
+        </section>
+    </main>
+
+    <!-- Edit Modal -->
+    <div class="modal-overlay" id="edit-modal" style="display:none">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Редагування анкору</h2>
+                <button class="modal-close" id="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field-row">
+                    <label>Анкор</label>
+                    <input type="text" id="edit-anchor-text">
+                </div>
+                <div class="field-row">
+                    <label>Тип анкору</label>
+                    <select id="edit-anchor-type">
+                        <option value="exact_match">Exact Match</option>
+                        <option value="partial_match">Partial Match</option>
+                        <option value="branded">Branded</option>
+                        <option value="generic">Generic</option>
+                        <option value="url">URL</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="modal-cancel">Скасувати</button>
+                <button class="btn btn-primary" id="modal-save">Зберегти</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/project.js"></script>
+</body>
+</html>

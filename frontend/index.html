@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anchor Plan — Проекти</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/projects.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body class="projects-page">
+    <div class="projects-container">
+        <header class="projects-header">
+            <div class="projects-logo">
+                <i class="fas fa-anchor"></i>
+                <h1>Anchor Plan</h1>
+            </div>
+            <p class="projects-subtitle">Керування анкор-планами для закупок посилань</p>
+        </header>
+
+        <div class="projects-actions">
+            <button class="btn btn-primary btn-lg" id="new-project-btn">
+                <i class="fas fa-plus"></i>
+                Новий проект
+            </button>
+        </div>
+
+        <div class="projects-grid" id="projects-grid">
+            <div class="projects-loader" id="projects-loader">
+                <div class="spinner"></div>
+                <span>Завантажуємо проекти...</span>
+            </div>
+        </div>
+
+        <div class="projects-empty" id="projects-empty" style="display:none">
+            <i class="fas fa-folder-open"></i>
+            <h2>Поки немає проектів</h2>
+            <p>Створіть перший проект, щоб почати будувати анкор-план</p>
+        </div>
+    </div>
+
+    <!-- New Project Modal -->
+    <div class="modal-overlay" id="new-project-modal" style="display:none">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Новий проект</h2>
+                <button class="modal-close" id="np-modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field-row">
+                    <label>Назва проекту *</label>
+                    <input type="text" id="np-name" placeholder="Наприклад: mysite.com — головна кампанія">
+                </div>
+                <div class="field-row">
+                    <label>Домен</label>
+                    <input type="text" id="np-domain" placeholder="mysite.com">
+                </div>
+                <div class="field-row">
+                    <label>Назва бренду</label>
+                    <input type="text" id="np-brand" placeholder="MyBrand">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="np-modal-cancel">Скасувати</button>
+                <button class="btn btn-primary" id="np-modal-create">Створити</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirm Modal -->
+    <div class="modal-overlay" id="delete-modal" style="display:none">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Видалити проект?</h2>
+                <button class="modal-close" id="del-modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="del-confirm-text">Ви впевнені, що хочете видалити цей проект? Цю дію неможливо скасувати.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="del-modal-cancel">Скасувати</button>
+                <button class="btn btn-danger" id="del-modal-confirm">Видалити</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/projects.js"></script>
+</body>
+</html>

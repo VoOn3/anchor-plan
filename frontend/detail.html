@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL Detail — Anchor Plan</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/detail.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="sidebar-logo">
+            <i class="fas fa-anchor"></i>
+            <span>Anchor Plan</span>
+        </div>
+        <ul class="sidebar-menu">
+            <li id="back-link">
+                <a href="index.html" class="sidebar-link">
+                    <i class="fas fa-arrow-left"></i>
+                    <span>Назад до аналізу</span>
+                </a>
+            </li>
+        </ul>
+    </nav>
+
+    <main class="content">
+        <div class="detail-loader" id="detail-loader">
+            <div class="spinner"></div>
+            <span>Завантажуємо дані...</span>
+        </div>
+
+        <div id="detail-content" style="display:none">
+            <!-- Header -->
+            <div class="detail-header">
+                <div class="detail-url-row">
+                    <h1 id="detail-url"></h1>
+                    <a id="detail-external-link" href="#" target="_blank" class="btn btn-outline btn-sm">
+                        <i class="fas fa-external-link-alt"></i> Відкрити
+                    </a>
+                </div>
+                <div class="detail-badges" id="detail-badges"></div>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="detail-stats" id="detail-stats"></div>
+
+            <!-- Tabs -->
+            <div class="detail-tabs">
+                <button class="tab-btn active" data-tab="anchors">
+                    <i class="fas fa-link"></i> Існуючі анкори
+                </button>
+                <button class="tab-btn" data-tab="distribution">
+                    <i class="fas fa-chart-pie"></i> Розподіл типів
+                </button>
+                <button class="tab-btn" data-tab="keywords">
+                    <i class="fas fa-key"></i> Ключові слова
+                </button>
+                <button class="tab-btn" data-tab="recommendations">
+                    <i class="fas fa-lightbulb"></i> Рекомендації
+                </button>
+            </div>
+
+            <!-- Tab: Anchors -->
+            <div class="tab-panel active" id="tab-anchors">
+                <div class="filter-bar">
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="anchors-search" placeholder="Пошук анкору...">
+                    </div>
+                    <div class="filter-group">
+                        <select id="anchors-type-filter">
+                            <option value="">Всі типи</option>
+                            <option value="exact_match">Exact Match</option>
+                            <option value="partial_match">Partial Match</option>
+                            <option value="branded">Branded</option>
+                            <option value="generic">Generic</option>
+                            <option value="url">URL</option>
+                            <option value="other">Інше</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table" id="anchors-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="anchor">Анкор</th>
+                                <th class="sortable" data-sort="count">Кількість</th>
+                                <th class="sortable" data-sort="type">Тип</th>
+                                <th class="sortable" data-sort="avg_dr">Сер. DR</th>
+                                <th>Dofollow</th>
+                                <th>Nofollow</th>
+                                <th>Донори</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tab: Distribution -->
+            <div class="tab-panel" id="tab-distribution">
+                <div class="distribution-grid" id="distribution-grid"></div>
+            </div>
+
+            <!-- Tab: Keywords -->
+            <div class="tab-panel" id="tab-keywords">
+                <div class="table-wrap">
+                    <table class="data-table" id="keywords-table">
+                        <thead>
+                            <tr>
+                                <th>Ключове слово</th>
+                                <th>Перша позиція</th>
+                                <th>Попередня</th>
+                                <th>Поточна</th>
+                                <th>Динаміка</th>
+                                <th>Зміна (short)</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tab: Recommendations -->
+            <div class="tab-panel" id="tab-recommendations">
+                <div class="table-wrap">
+                    <table class="data-table" id="recommendations-table">
+                        <thead>
+                            <tr>
+                                <th>Рекомендований анкор</th>
+                                <th>Тип</th>
+                                <th>Цільовий ключ</th>
+                                <th>Коментар</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="js/detail.js"></script>
+</body>
+</html>
