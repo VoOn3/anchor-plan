@@ -28,38 +28,57 @@ def _matches(site: dict, f: dict) -> bool:
 
     if target is None or target == "":
         return True
+    targets = [target] if not isinstance(target, list) else [t for t in target if t is not None and t != ""]
+    if not targets:
+        return True
 
     raw = site.get(field)
     if raw is None:
         return False
 
+    raw_parts = [p.strip() for p in str(raw).split(",") if p.strip()] if raw is not None else []
+    if not raw_parts:
+        raw_parts = [raw]
+
     if op in (">=", "<="):
         num = _to_float(raw)
-        target_num = _to_float(target)
-        if num is None or target_num is None:
+        if num is None:
             return False
-        if op == ">=" and num < target_num:
-            return False
-        if op == "<=" and num > target_num:
-            return False
+        for t in targets:
+            target_num = _to_float(t)
+            if target_num is not None:
+                if op == ">=" and num >= target_num:
+                    return True
+                if op == "<=" and num <= target_num:
+                    return True
+        return False
 
     elif op == "=":
-        num = _to_float(raw)
-        target_num = _to_float(target)
-        if num is not None and target_num is not None:
-            if num != target_num:
-                return False
-        else:
-            if str(raw).strip().lower() != str(target).strip().lower():
-                return False
+        raw_num = _to_float(raw)
+        for t in targets:
+            t_num = _to_float(t)
+            if raw_num is not None and t_num is not None:
+                if raw_num == t_num:
+                    return True
+            else:
+                for rp in raw_parts:
+                    if str(rp).strip().lower() == str(t).strip().lower():
+                        return True
+        return False
 
     elif op == "contains":
-        if str(target).lower() not in str(raw).lower():
-            return False
+        raw_lower = str(raw).lower()
+        for t in targets:
+            if str(t).lower() in raw_lower:
+                return True
+        return False
 
     elif op == "not_contains":
-        if str(target).lower() in str(raw).lower():
-            return False
+        raw_lower = str(raw).lower()
+        for t in targets:
+            if str(t).lower() in raw_lower:
+                return False
+        return True
 
     return True
 

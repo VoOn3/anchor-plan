@@ -57,6 +57,45 @@
                 <p>Завантажте файл позицій та вигрузку беклінків (Ahrefs або Collaborator)</p>
             </div>
 
+            <div class="upload-info-block">
+                <h4><i class="fas fa-info-circle"></i> Вимоги до файлів</h4>
+                <div class="upload-info-grid">
+                    <div class="upload-info-item">
+                        <strong>Реєстр позицій (CSV/XLSX)</strong>
+                        <ul>
+                            <li>Обов'язкові колонки: <code>URL</code> (або Page, Сторінка), <code>Keyword</code> (або Ключ, Query)</li>
+                            <li>Колонки з датами (YYYY-MM-DD, DD.MM.YYYY) — позиція ключа на цю дату</li>
+                            <li>Значення в колонках дат: число 1–1000 або порожнє</li>
+                        </ul>
+                        <details class="upload-example">
+                            <summary>Приклад CSV</summary>
+                            <pre>URL,Keyword,2024-01-15,2024-02-15
+https://example.com/page,ключове слово,12,8
+https://example.com/blog,crm система,25,18</pre>
+                            <button type="button" class="btn btn-sm btn-outline upload-download-example" data-example="positions">
+                                <i class="fas fa-download"></i> Завантажити приклад
+                            </button>
+                        </details>
+                    </div>
+                    <div class="upload-info-item">
+                        <strong>Вигрузка беклінків (CSV/XLSX)</strong>
+                        <ul>
+                            <li><strong>Ahrefs:</strong> обов'язкова колонка <code>Anchor</code> (або Анкор). Опційно: Target URL, Referring Page, Type, DR, Traffic</li>
+                            <li><strong>Collaborator:</strong> XLSX з листом «Розподіл по операціях», колонки «Анкори» та «Цільова сторінка»</li>
+                        </ul>
+                        <details class="upload-example">
+                            <summary>Приклад Ahrefs CSV</summary>
+                            <pre>Target URL,Anchor,Referring Page,Type
+https://example.com/page,ключове слово,https://site.com/article,dofollow
+https://example.com/page,тут,https://other.com/post,nofollow</pre>
+                            <button type="button" class="btn btn-sm btn-outline upload-download-example" data-example="ahrefs">
+                                <i class="fas fa-download"></i> Завантажити приклад
+                            </button>
+                        </details>
+                    </div>
+                </div>
+            </div>
+
             <div class="upload-grid">
                 <div class="upload-card" id="positions-upload">
                     <div class="upload-dropzone" data-input="positions-file">
@@ -68,6 +107,7 @@
                         <button class="btn btn-outline">Обрати файл</button>
                     </div>
                     <div class="upload-status" id="positions-status"></div>
+                    <div class="upload-validation-msg" id="positions-validation"></div>
                 </div>
 
                 <div class="upload-card" id="ahrefs-upload">
@@ -80,6 +120,7 @@
                         <button class="btn btn-outline">Обрати файл</button>
                     </div>
                     <div class="upload-status" id="ahrefs-status"></div>
+                    <div class="upload-validation-msg" id="ahrefs-validation"></div>
                 </div>
             </div>
 
@@ -161,17 +202,17 @@
                 <table class="data-table" id="dashboard-table">
                     <thead>
                         <tr>
-                            <th style="width:40px"><input type="checkbox" id="select-all-cb"></th>
-                            <th>URL</th>
-                            <th>Рекомендація</th>
-                            <th>Пріоритет</th>
-                            <th>Кращий ключ</th>
-                            <th>Позиція</th>
-                            <th>Динаміка</th>
-                            <th>Беклінки</th>
-                            <th>Dofollow</th>
-                            <th>Закупити</th>
-                            <th>Унік. анкорів</th>
+                            <th style="width:40px" title="Обрати всі"><input type="checkbox" id="select-all-cb"></th>
+                            <th data-sort="url" class="sortable" title="Цільова сторінка">URL</th>
+                            <th data-sort="recommendation" class="sortable" title="Рекомендація щодо закупок">Рекомендація</th>
+                            <th data-sort="priority" class="sortable" title="Пріоритет сторінки">Пріоритет</th>
+                            <th data-sort="best_keyword" class="sortable" title="Кращий ключ за позицією">Кращий ключ</th>
+                            <th data-sort="position" class="sortable" title="Позиція в пошуку">Позиція</th>
+                            <th data-sort="dynamics" class="sortable" title="Динаміка позиції">Динаміка</th>
+                            <th data-sort="total_backlinks" class="sortable" title="Всього беклінків">Беклінки</th>
+                            <th data-sort="dofollow_count" class="sortable" title="Dofollow посилань">Dofollow</th>
+                            <th data-sort="recommended_links" class="sortable" title="Рекомендовано закупити">Закупити</th>
+                            <th data-sort="unique_anchors" class="sortable" title="Унікальних анкорів">Унік. анкорів</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -188,6 +229,9 @@
                         <p>Рекомендовані анкори для закупки посилань</p>
                     </div>
                     <div class="header-actions">
+                        <button type="button" class="btn btn-outline" id="btn-upload-plan" title="CSV або XLSX з колонками URL та Анкор">
+                            <i class="fas fa-upload"></i> Завантажити план
+                        </button>
                         <button class="btn btn-outline" id="btn-add-anchor">
                             <i class="fas fa-plus"></i> Додати анкор
                         </button>
@@ -318,19 +362,58 @@
         <section id="statistics-section" class="section">
             <div class="section-header">
                 <h1>Статистика закупок</h1>
-                <p>Аналіз закуплених посилань з вигрузки Collaborator</p>
+                <p>Аналіз закуплених посилань з вигрузки Ahrefs або Collaborator</p>
             </div>
 
-            <div class="stat-filter-bar">
-                <label>Період:</label>
-                <input type="date" id="stat-date-from">
-                <span>—</span>
-                <input type="date" id="stat-date-to">
-                <button class="btn btn-sm btn-primary" id="stat-apply-filter">
-                    <i class="fas fa-filter"></i> Застосувати
-                </button>
-                <button class="btn btn-sm btn-outline" id="stat-reset-filter">Скинути</button>
+            <div id="stat-empty-state" class="stat-empty-state" style="display:none">
+                <i class="fas fa-chart-area"></i>
+                <h3>Немає даних для статистики</h3>
+                <p>Статистика формується з вигрузки беклінків (Ahrefs Backlinks/Anchors або Collaborator).</p>
+                <p>Переконайтесь, що при завантаженні ви використали файл з колонками: <strong>Anchor</strong>, <strong>Target URL</strong>, опційно — <strong>placement_date</strong>, <strong>cost</strong>.</p>
+                <a href="#upload-section" class="btn btn-outline" onclick="switchSection('upload');return false;"><i class="fas fa-upload"></i> Перейти до завантаження</a>
             </div>
+
+            <div id="stat-content" class="stat-content">
+            <div class="stat-toolbar">
+                <div class="stat-filter-bar" id="stat-date-filter-bar">
+                    <label>Період:</label>
+                    <div class="stat-quick-dates">
+                        <button type="button" class="btn btn-sm btn-outline stat-quick-date" data-preset="month">Місяць</button>
+                        <button type="button" class="btn btn-sm btn-outline stat-quick-date" data-preset="3months">3 міс.</button>
+                        <button type="button" class="btn btn-sm btn-outline stat-quick-date" data-preset="year">Рік</button>
+                    </div>
+                    <input type="date" id="stat-date-from">
+                    <span>—</span>
+                    <input type="date" id="stat-date-to">
+                    <button class="btn btn-sm btn-primary" id="stat-apply-filter"><i class="fas fa-filter"></i> Застосувати</button>
+                    <button class="btn btn-sm btn-outline" id="stat-reset-filter">Скинути</button>
+                </div>
+                <div class="stat-filter-extras">
+                    <label>Тип анкору:</label>
+                    <select id="stat-type-filter">
+                        <option value="">Всі типи</option>
+                        <option value="exact_match">Exact Match</option>
+                        <option value="partial_match">Partial Match</option>
+                        <option value="branded">Branded</option>
+                        <option value="generic">Generic</option>
+                        <option value="url">URL</option>
+                        <option value="other">Other</option>
+                    </select>
+                    <label>Вартість від</label>
+                    <input type="number" id="stat-cost-min" placeholder="мін" min="0" step="1" style="width:70px">
+                    <label>до</label>
+                    <input type="number" id="stat-cost-max" placeholder="макс" min="0" step="1" style="width:70px">
+                </div>
+                <div class="stat-compare-row" id="stat-compare-row" style="display:none">
+                    <label><input type="checkbox" id="stat-compare-mode"> Порівняти з попереднім періодом</label>
+                </div>
+                <div class="stat-export-row">
+                    <button type="button" class="btn btn-sm btn-outline" id="stat-export-csv"><i class="fas fa-download"></i> Експорт CSV</button>
+                    <button type="button" class="btn btn-sm btn-outline" id="stat-export-summary"><i class="fas fa-file-alt"></i> Зведення</button>
+                </div>
+            </div>
+
+            <div id="stat-comparison-block" class="stat-comparison-block" style="display:none"></div>
 
             <div class="stats-row stats-row-5" id="stat-summary-row"></div>
 
@@ -364,14 +447,16 @@
                     <thead>
                         <tr>
                             <th style="width:30px"></th>
-                            <th>Цільова URL</th>
-                            <th>Посилань</th>
-                            <th>Витрачено (UAH)</th>
+                            <th data-sort="url" class="sortable">Цільова URL</th>
+                            <th data-sort="count" class="sortable">Посилань</th>
+                            <th data-sort="cost" class="sortable">Витрачено</th>
                             <th>Типи анкорів</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
                 </table>
+            </div>
+            <div class="stat-pagination" id="stat-pagination" style="display:none"></div>
             </div>
         </section>
 
@@ -382,40 +467,89 @@
                 <p>Зміна параметрів генерації анкор-плану</p>
             </div>
 
+            <div class="settings-toolbar">
+                <div class="settings-toolbar-left">
+                    <span class="settings-toolbar-label">Шаблон:</span>
+                    <select id="settings-preset-select" class="settings-preset-select">
+                        <option value="">— Оберіть шаблон —</option>
+                    </select>
+                    <button type="button" class="btn btn-sm btn-outline" id="btn-save-as-preset" title="Зберегти поточні налаштування як шаблон">
+                        <i class="fas fa-save"></i> Зберегти як шаблон
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline" id="btn-reset-settings" title="Скинути до стандартних значень">
+                        <i class="fas fa-undo"></i> Скинути
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline" id="btn-export-settings">
+                        <i class="fas fa-download"></i> Експорт
+                    </button>
+                    <label class="btn btn-sm btn-outline" style="margin:0;cursor:pointer">
+                        <i class="fas fa-upload"></i> Імпорт
+                        <input type="file" id="settings-import-file" accept=".json" hidden>
+                    </label>
+                </div>
+                <div class="settings-toolbar-right">
+                    <span class="settings-toolbar-label">Історія:</span>
+                    <select id="settings-history-select" class="settings-history-select" title="Відновити попередні налаштування">
+                        <option value="">— Немає історії —</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="settings-validation-msg" class="settings-validation-msg" style="display:none"></div>
+
             <div class="settings-grid">
                 <div class="settings-card">
                     <h3><i class="fas fa-wallet"></i> Бюджет та обсяг</h3>
                     <div class="settings-fields">
                         <div class="field-row">
-                            <label>Місячний бюджет (UAH)</label>
+                            <label>Валюта</label>
+                            <select id="settings-currency" style="width:100px">
+                                <option value="UAH">UAH</option>
+                                <option value="USD">USD</option>
+                                <option value="EUR">EUR</option>
+                            </select>
+                        </div>
+                        <div class="field-row">
+                            <label class="with-tooltip">Місячний бюджет <i class="fas fa-info-circle" data-tooltip="0 = без обмеження. Використовується для фільтрації площадок за ціною."></i></label>
                             <input type="number" id="settings-budget" min="0" value="0" style="width:120px">
                             <span class="input-hint-inline">0 = без обмеження</span>
                         </div>
+                        <div id="settings-budget-forecast" class="settings-budget-forecast" style="display:none"></div>
                         <div class="field-row">
-                            <label>Планова к-сть посилань</label>
+                            <label class="with-tooltip">Планова к-сть посилань <i class="fas fa-info-circle" data-tooltip="Загальна кількість посилань для розподілу між сторінками. 0 = використовувати 'посилань на сторінку'."></i></label>
                             <input type="number" id="settings-planned-links" min="0" value="0" style="width:120px">
-                            <span class="input-hint-inline">0 = за формулою (посилань на стор.)</span>
+                            <span class="input-hint-inline">0 = за формулою</span>
                         </div>
                         <div class="field-row">
-                            <label>Посилань на сторінку</label>
+                            <label class="with-tooltip">Посилань на сторінку <i class="fas fa-info-circle" data-tooltip="Використовується, якщо планова к-сть = 0. Скільки посилань генерувати на кожну сторінку."></i></label>
                             <input type="number" id="settings-links-per-page" min="1" max="20" value="3" style="width:60px">
                             <span class="input-hint-inline">якщо планова к-сть = 0</span>
                         </div>
                         <div class="field-row">
-                            <label>Назва бренду</label>
-                            <input type="text" id="settings-brand" placeholder="MyBrand">
+                            <label class="with-tooltip">Назви брендів <i class="fas fa-info-circle" data-tooltip="Кілька варіантів через кому. Використовується для класифікації брендованих анкорів. Наприклад: MyBrand, My Brand, MyBrand UA."></i></label>
+                            <input type="text" id="settings-brand" placeholder="MyBrand, My Brand, MyBrand UA" style="min-width:220px">
+                            <span class="input-hint-inline">через кому</span>
                         </div>
                     </div>
                 </div>
 
-                <div class="settings-card">
-                    <h3><i class="fas fa-chart-pie"></i> Розподіл анкорів (%)</h3>
+                <div class="settings-card settings-advanced-toggle">
+                    <h3><i class="fas fa-chart-pie"></i> Розподіл анкорів (%) <button type="button" class="settings-toggle-btn" id="toggle-distribution" aria-label="Згорнути/розгорнути"><i class="fas fa-chevron-down"></i></button></h3>
                     <div class="settings-fields" id="distribution-settings"></div>
                 </div>
 
-                <div class="settings-card">
-                    <h3><i class="fas fa-bullseye"></i> Діапазони пріоритетів</h3>
+                <div class="settings-card settings-advanced-toggle">
+                    <h3><i class="fas fa-bullseye"></i> Діапазони пріоритетів <button type="button" class="settings-toggle-btn" id="toggle-priority" aria-label="Згорнути/розгорнути"><i class="fas fa-chevron-down"></i></button></h3>
+                    <div class="priority-quick-templates">
+                        <span class="priority-templates-label">Шаблон:</span>
+                        <button type="button" class="btn btn-sm btn-outline priority-template-btn" data-preset="standard">Стандартний</button>
+                        <button type="button" class="btn btn-sm btn-outline priority-template-btn" data-preset="conservative">Консервативний</button>
+                        <button type="button" class="btn btn-sm btn-outline priority-template-btn" data-preset="aggressive">Агресивний</button>
+                    </div>
+                    <div class="priority-visual-bar" id="priority-visual-bar" title="Візуалізація діапазонів позицій"></div>
+                    <div id="priority-coverage-msg" class="priority-coverage-msg" style="display:none"></div>
                     <div class="settings-fields" id="priority-settings"></div>
+                    <div id="priority-preview" class="priority-preview" style="display:none"></div>
                 </div>
             </div>
 
@@ -450,14 +584,51 @@
                 </div>
             </div>
 
-            <button class="btn btn-primary btn-lg" id="recalculate-btn" style="margin-top:24px">
-                <i class="fas fa-sync-alt"></i>
-                Перерахувати план
-            </button>
+            <div class="settings-actions" style="margin-top:24px">
+                <button class="btn btn-outline btn-lg" id="save-settings-btn">
+                    <i class="fas fa-save"></i> Зберегти налаштування
+                </button>
+                <button class="btn btn-primary btn-lg" id="recalculate-btn" style="margin-left:12px">
+                    <i class="fas fa-sync-alt"></i> Перерахувати план
+                </button>
+            </div>
         </section>
     </main>
 
     <!-- Edit Modal -->
+    <div class="modal-overlay" id="upload-plan-modal" style="display:none">
+        <div class="modal" style="max-width:420px">
+            <div class="modal-header">
+                <h2>Завантаження анкор-плану</h2>
+                <button class="modal-close" id="upload-plan-modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="upload-plan-hint">Оберіть, як застосувати план:</p>
+                <div class="field-row upload-plan-options">
+                    <label class="radio-label">
+                        <input type="radio" name="plan-upload-mode" value="replace" checked>
+                        <span>Замінити весь план</span>
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="plan-upload-mode" value="add">
+                        <span>Додати до існуючого плану</span>
+                    </label>
+                </div>
+                <div class="upload-plan-file-block">
+                    <label class="btn btn-outline upload-plan-file-btn" for="anchor-plan-file">
+                        <i class="fas fa-folder-open"></i> Обрати файл
+                    </label>
+                    <input type="file" id="anchor-plan-file" accept=".csv,.xlsx,.xls" hidden>
+                    <span class="upload-plan-file-name" id="upload-plan-file-name">Файл не обрано</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="upload-plan-cancel">Скасувати</button>
+                <button class="btn btn-primary" id="upload-plan-confirm" disabled><i class="fas fa-upload"></i> Завантажити</button>
+            </div>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="edit-modal" style="display:none">
         <div class="modal">
             <div class="modal-header">
@@ -467,7 +638,17 @@
             <div class="modal-body">
                 <div class="field-row">
                     <label>Анкор</label>
-                    <input type="text" id="edit-anchor-text">
+                    <div class="field-input-wrap">
+                        <div class="edit-anchor-combobox">
+                            <input type="text" id="edit-anchor-text" placeholder="Введіть або оберіть зі списку" autocomplete="off">
+                            <span class="edit-anchor-arrow"><i class="fas fa-chevron-down"></i></span>
+                            <div class="edit-anchor-dropdown" id="edit-anchor-dropdown">
+                                <div class="edit-anchor-options" id="edit-anchor-options"></div>
+                                <div class="edit-anchor-empty" id="edit-anchor-empty" style="display:none">Немає доступних анкорів</div>
+                            </div>
+                        </div>
+                        <span class="field-hint">З позицій та закуплених анкорів</span>
+                    </div>
                 </div>
                 <div class="field-row">
                     <label>Тип анкору</label>

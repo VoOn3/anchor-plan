@@ -258,6 +258,36 @@ def _parse_ahrefs_standard(file_path: str) -> list[dict]:
     return results
 
 
+def parse_anchor_plan_file(file_path: str) -> list[dict]:
+    """
+    Парсить файл анкор-плану. Обов'язкові колонки: URL та анкор.
+    Повертає список {url, anchor}.
+    """
+    df = read_file(file_path)
+
+    url_col = find_column(df, ["url", "page", "сторінка", "landing page", "target url", "landing", "цільова сторінка"])
+    anchor_col = find_column(df, ["anchor", "анкор", "анкори", "keyword", "ключ", "ключове слово", "anchor text"])
+
+    if not url_col or not anchor_col:
+        raise ValueError(
+            "Не знайдено колонки URL або Анкор. "
+            "Переконайтесь, що файл містить колонки 'URL' та 'Анкор' (або 'Anchor')."
+        )
+
+    results = []
+    for _, row in df.iterrows():
+        url = normalize_url(str(row[url_col]))
+        anchor = str(row[anchor_col]).strip()
+        if not url or not anchor or anchor.lower() == "nan":
+            continue
+        results.append({"url": url, "anchor": anchor})
+
+    if not results:
+        raise ValueError("Файл не містить жодного рядка з URL та анкором.")
+
+    return results
+
+
 def read_file(file_path: str) -> pd.DataFrame:
     if file_path.endswith((".xlsx", ".xls")):
         return pd.read_excel(file_path)

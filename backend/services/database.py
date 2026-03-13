@@ -6,6 +6,14 @@ from datetime import datetime
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "anchor_plan.db")
 
 
+def _parse_json_safe(row, key, default):
+    try:
+        val = row[key]
+        return json.loads(val or "[]") if val is not None else default
+    except (KeyError, TypeError, ValueError):
+        return default
+
+
 def get_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
@@ -32,12 +40,50 @@ def init_db():
             collaborator_sites TEXT DEFAULT '[]'
         );
     """)
-    for col, default in [("selected_urls", "'[]'"), ("collaborator_sites", "'[]'"), ("custom_links", "'{}'" )]:
+    for col, default in [("selected_urls", "'[]'"), ("collaborator_sites", "'[]'"), ("custom_links", "'{}'"), ("settings_history", "'[]'")]:
         try:
             conn.execute(f"ALTER TABLE projects ADD COLUMN {col} TEXT DEFAULT {default}")
             conn.commit()
         except sqlite3.OperationalError:
             pass
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS settings_presets (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            settings TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+    """)
+    # Seed default presets if empty
+    count = conn.execute("SELECT COUNT(*) FROM settings_presets").fetchone()[0]
+    if count == 0:
+        now = datetime.utcnow().isoformat()
+        defaults = [
+            ("preset-conservative", "Консервативний", json.dumps({
+                "anchor_distribution": {"exact_match": {"min": 15, "max": 20}, "partial_match": {"min": 25, "max": 30},
+                    "branded": {"min": 25, "max": 35}, "generic": {"min": 10, "max": 15}, "url": {"min": 5, "max": 10}},
+                "priority_ranges": {"high": {"from": 4, "to": 20}, "medium": {"from": 21, "to": 50},
+                    "low_top": {"from": 1, "to": 3}, "low_bottom": {"from": 51, "to": 1000}},
+                "links_per_page": 2,
+            }, ensure_ascii=False)),
+            ("preset-aggressive", "Агресивний", json.dumps({
+                "anchor_distribution": {"exact_match": {"min": 5, "max": 10}, "partial_match": {"min": 15, "max": 25},
+                    "branded": {"min": 15, "max": 25}, "generic": {"min": 20, "max": 30}, "url": {"min": 15, "max": 25}},
+                "priority_ranges": {"high": {"from": 4, "to": 30}, "medium": {"from": 31, "to": 80},
+                    "low_top": {"from": 1, "to": 3}, "low_bottom": {"from": 81, "to": 1000}},
+                "links_per_page": 5,
+            }, ensure_ascii=False)),
+            ("preset-brand-focus", "Бренд-фокус", json.dumps({
+                "anchor_distribution": {"exact_match": {"min": 10, "max": 15}, "partial_match": {"min": 15, "max": 20},
+                    "branded": {"min": 35, "max": 45}, "generic": {"min": 10, "max": 15}, "url": {"min": 5, "max": 10}},
+                "priority_ranges": {"high": {"from": 4, "to": 20}, "medium": {"from": 21, "to": 50},
+                    "low_top": {"from": 1, "to": 3}, "low_bottom": {"from": 51, "to": 1000}},
+                "links_per_page": 3,
+            }, ensure_ascii=False)),
+        ]
+        for pid, pname, pset in defaults:
+            conn.execute("INSERT OR IGNORE INTO settings_presets (id, name, settings, created_at) VALUES (?, ?, ?, ?)",
+                         (pid, pname, pset, now))
     conn.commit()
     conn.close()
 
@@ -80,6 +126,7 @@ def get_project(project_id):
         "selected_urls": json.loads(row["selected_urls"] or "[]"),
         "collaborator_sites": json.loads(row["collaborator_sites"] or "[]"),
         "custom_links": json.loads(row["custom_links"] or "{}"),
+        "settings_history": _parse_json_safe(row, "settings_history", []),
     }
 
 
@@ -127,6 +174,57 @@ def update_project(project_id, **kwargs):
 def delete_project(project_id):
     conn = get_db()
     conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+    conn.commit()
+    conn.close()
+
+
+def add_settings_to_history(project_id, settings, max_entries=10):
+    """Додає поточні налаштування в історію перед оновленням."""
+    conn = get_db()
+    row = conn.execute("SELECT settings, settings_history FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not row:
+        conn.close()
+        return
+    try:
+        history = json.loads(row["settings_history"] or "[]")
+    except (TypeError, ValueError):
+        history = []
+    current = json.loads(row["settings"] or "{}")
+    if current:
+        history.insert(0, {"settings": current, "created_at": datetime.utcnow().isoformat()})
+        history = history[:max_entries]
+        conn.execute("UPDATE projects SET settings_history = ? WHERE id = ?", (json.dumps(history, ensure_ascii=False), project_id))
+        conn.commit()
+    conn.close()
+
+
+def update_project_with_history(project_id, settings):
+    """Оновлює налаштування та додає попередні в історію."""
+    add_settings_to_history(project_id, None)
+    update_project(project_id, settings=settings)
+
+
+def list_settings_presets():
+    conn = get_db()
+    rows = conn.execute("SELECT id, name, settings, created_at FROM settings_presets ORDER BY name").fetchall()
+    conn.close()
+    return [{"id": r["id"], "name": r["name"], "settings": json.loads(r["settings"]), "created_at": r["created_at"]} for r in rows]
+
+
+def create_settings_preset(preset_id, name, settings):
+    now = datetime.utcnow().isoformat()
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO settings_presets (id, name, settings, created_at) VALUES (?, ?, ?, ?)",
+        (preset_id, name, json.dumps(settings, ensure_ascii=False), now),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_settings_preset(preset_id):
+    conn = get_db()
+    conn.execute("DELETE FROM settings_presets WHERE id = ?", (preset_id,))
     conn.commit()
     conn.close()
 

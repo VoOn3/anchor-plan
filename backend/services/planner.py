@@ -1,4 +1,4 @@
-from services.analyzer import classify_anchor
+from services.analyzer import classify_anchor, parse_brand_names
 
 PURCHASE_ORDER = {
     "priority": 1,
@@ -322,8 +322,9 @@ def _create_anchor(
         }
 
     if anchor_type == "branded":
-        if brand_name:
-            anchor_text = brand_name
+        brand_names = parse_brand_names(brand_name)
+        if brand_names:
+            anchor_text = brand_names[0]
         else:
             from urllib.parse import urlparse
             parsed = urlparse(url)

@@ -2,7 +2,7 @@ import re
 from collections import defaultdict
 
 
-def analyze_pages(positions_data: list[dict], ahrefs_data: list[dict]) -> list[dict]:
+def analyze_pages(positions_data: list[dict], ahrefs_data: list[dict], priority_ranges: dict | None = None) -> list[dict]:
     page_keywords = defaultdict(list)
     for item in positions_data:
         page_keywords[item["url"]].append({
@@ -44,7 +44,7 @@ def analyze_pages(positions_data: list[dict], ahrefs_data: list[dict]) -> list[d
 
         anchor_profile = build_anchor_profile(anchors)
         best_keyword = get_best_keyword(keyword_analysis)
-        priority = calculate_priority(keyword_analysis)
+        priority = calculate_priority(keyword_analysis, priority_ranges)
         recommendation = calculate_url_recommendation(keyword_analysis)
 
         results.append({
@@ -113,6 +113,13 @@ def build_anchor_profile(anchors: list[dict]) -> dict:
     }
 
 
+def parse_brand_names(brand_name: str) -> list[str]:
+    """Парсить рядок з назвами брендів (через кому) у список."""
+    if not brand_name or not isinstance(brand_name, str):
+        return []
+    return [b.strip() for b in brand_name.split(",") if b.strip()]
+
+
 def classify_anchor(anchor_text: str, target_keywords: list[str], brand_name: str, target_url: str) -> str:
     text = anchor_text.lower().strip()
 
@@ -122,8 +129,10 @@ def classify_anchor(anchor_text: str, target_keywords: list[str], brand_name: st
     if re.match(r'^https?://\S+$', text) or re.match(r'^www\.\S+$', text):
         return "url"
 
-    if brand_name and brand_name.lower() in text:
-        return "branded"
+    brand_names = parse_brand_names(brand_name)
+    for bn in brand_names:
+        if bn.lower() in text:
+            return "branded"
 
     for kw in target_keywords:
         kw_lower = kw.lower().strip()
@@ -178,9 +187,31 @@ def get_best_keyword(keyword_analysis: list[dict]) -> dict | None:
     return scored[0][1]
 
 
-def calculate_priority(keyword_analysis: list[dict]) -> dict:
+def _get_default_priority_ranges():
+    return {
+        "high": {"from": 4, "to": 20, "base_score": 80},
+        "medium": {"from": 21, "to": 50, "base_score": 40},
+        "low_top": {"from": 1, "to": 3, "base_score": 20},
+        "low_bottom": {"from": 51, "to": 1000, "base_score": 5},
+    }
+
+
+def _find_position_range(best_pos: int, priority_ranges: dict) -> tuple[str | None, dict]:
+    """Повертає (range_key, range_config) для позиції."""
+    defaults = _get_default_priority_ranges()
+    for key in ("low_top", "high", "medium", "low_bottom"):
+        r = {**defaults.get(key, {}), **priority_ranges.get(key, {})}
+        f, t = r.get("from", 0), r.get("to", 1000)
+        if f <= best_pos <= t:
+            return key, r
+    return None, {}
+
+
+def calculate_priority(keyword_analysis: list[dict], priority_ranges: dict | None = None) -> dict:
     if not keyword_analysis:
         return {"level": "low", "score": 0}
+
+    ranges = priority_ranges or _get_default_priority_ranges()
 
     best_pos = None
     best_dynamics = 0
@@ -196,17 +227,17 @@ def calculate_priority(keyword_analysis: list[dict]) -> dict:
     if best_pos is None:
         return {"level": "low", "score": 0}
 
-    if 4 <= best_pos <= 20:
-        base_score = 80
-        pos_bonus = (20 - best_pos) * 2
-    elif 21 <= best_pos <= 50:
-        base_score = 40
-        pos_bonus = (50 - best_pos)
-    elif 1 <= best_pos <= 3:
-        base_score = 20
+    range_key, range_cfg = _find_position_range(best_pos, ranges)
+    base_score = range_cfg.get("base_score", 5)
+    to_pos = range_cfg.get("to", 1000)
+
+    if range_key == "high":
+        pos_bonus = (to_pos - best_pos) * 2
+    elif range_key == "medium":
+        pos_bonus = to_pos - best_pos
+    elif range_key == "low_top":
         pos_bonus = 5
     else:
-        base_score = 5
         pos_bonus = 0
 
     dynamics_bonus = max(-20, min(20, best_dynamics * 2))
@@ -215,9 +246,9 @@ def calculate_priority(keyword_analysis: list[dict]) -> dict:
     total_score = base_score + pos_bonus + dynamics_bonus + decline_penalty
     total_score = max(0, min(100, total_score))
 
-    if total_score >= 60:
+    if range_key == "high":
         level = "high"
-    elif total_score >= 30:
+    elif range_key == "medium":
         level = "medium"
     else:
         level = "low"
