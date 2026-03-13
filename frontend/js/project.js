@@ -58,6 +58,129 @@ const DYNAMICS_TOOLTIPS = {
     decline: "Падіння — позиція погіршилась. Потрібна підтримка.",
 };
 
+const SECTION_HELP_CONTENT = {
+    upload: `
+        <h4>Завантаження даних</h4>
+        <p>На цій сторінці ви завантажуєте два типи файлів:</p>
+        <ul>
+            <li><strong>Реєстр позицій</strong> — CSV або XLSX з колонками URL, Keyword та колонками дат (позиція на кожну дату).</li>
+            <li><strong>Вигрузка беклінків</strong> — Ahrefs (колонка Anchor, Target URL) або Collaborator (лист «Розподіл по операціях»).</li>
+        </ul>
+        <p>Після успішного завантаження стане доступним аналіз позицій та побудова анкор-плану.</p>
+    `,
+    dashboard: `
+        <h4>Аналіз позицій</h4>
+        <p>Таблиця показує аналіз сторінок за позиціями, динамікою та профілем анкорів.</p>
+
+        <h5>Колонки</h5>
+        <ul>
+            <li><strong>URL</strong> — сторінка сайту</li>
+            <li><strong>Ключ</strong> — найкраще ключове слово для сторінки</li>
+            <li><strong>Позиція</strong> — поточна позиція в пошуку</li>
+            <li><strong>Динаміка</strong> — зміна позиції (growth / stable / decline)</li>
+            <li><strong>Рекомендація</strong> — чи варто включати сторінку в план</li>
+            <li><strong>Пріоритет</strong> — пріоритет для закупок</li>
+            <li><strong>Рек. посилань</strong> — рекомендована кількість посилань</li>
+        </ul>
+
+        <h5>Динаміка</h5>
+        <p>Формула: <code>0.6×(prev−curr) + 0.4×(first−curr)</code></p>
+        <ul>
+            <li><strong>Growth</strong> — динаміка &gt; 5 (позиція покращилась)</li>
+            <li><strong>Stable</strong> — динаміка від −5 до 5</li>
+            <li><strong>Decline</strong> — динаміка &lt; −5 (позиція падає)</li>
+        </ul>
+
+        <h5>Рекомендації</h5>
+        <div class="help-table-wrap">
+        <table class="help-table">
+            <tr><th>Умова</th><th>Рекомендація</th></tr>
+            <tr><td>Позиція 4–15</td><td><strong>Пріоритетно</strong> — дотиснути в ТОП-3</td></tr>
+            <tr><td>Позиція 4–20 + stable/growth</td><td><strong>Рекомендовано</strong> — хороший кандидат</td></tr>
+            <tr><td>Позиція 4–20 + decline</td><td><strong>Потребує підтримки</strong> — підтримка посиланнями</td></tr>
+            <tr><td>Позиція 21–50 + growth</td><td><strong>Має потенціал</strong> — є потенціал росту</td></tr>
+            <tr><td>Позиція 1–3</td><td><strong>Спостерігати</strong> — підтримка профілю</td></tr>
+            <tr><td>Інше</td><td><strong>Не рекомендовано</strong> — on-page оптимізація</td></tr>
+        </table>
+        </div>
+
+        <h5>Пріоритет</h5>
+        <p>Діапазони позицій:</p>
+        <ul>
+            <li><strong>low_top</strong> (1–3): base_score 20</li>
+            <li><strong>high</strong> (4–20): base_score 80</li>
+            <li><strong>medium</strong> (21–50): base_score 40</li>
+            <li><strong>low_bottom</strong> (51+): base_score 5</li>
+        </ul>
+        <p>Формула: <code>score = base_score + pos_bonus + dynamics_bonus + decline_penalty</code></p>
+        <ul>
+            <li><strong>pos_bonus</strong> — бонус за близькість до початку діапазону</li>
+            <li><strong>dynamics_bonus</strong> — ±20 за динаміку</li>
+            <li><strong>decline_penalty</strong> — −15 при падінні (динаміка &lt; −5)</li>
+        </ul>
+
+        <h5>Рекомендована кількість посилань</h5>
+        <p>Формула: <code>pos_links × dyn_mult + deficit_extra</code></p>
+        <ul>
+            <li><strong>pos_links</strong> — за позицією: 1–3→1, 4–10→3, 11–20→4, 21–50→5</li>
+            <li><strong>dyn_mult</strong> — decline: 1.5, growth: 1.3, stable: 1.0</li>
+            <li><strong>deficit_extra</strong> — 0–2 за дефіцит профілю анкорів</li>
+        </ul>
+    `,
+    plan: `
+        <h4>Анкор-план</h4>
+        <p>План зі закупленими та запланованими анкорами.</p>
+        <ul>
+            <li><strong>URL</strong> — цільова сторінка</li>
+            <li><strong>Анкор</strong> — текст посилання</li>
+            <li><strong>Тип</strong> — exact_match, partial_match, branded, generic, url</li>
+            <li><strong>Статус</strong> — закуплено / заплановано</li>
+            <li><strong>Площадка</strong> — домен для закупки</li>
+        </ul>
+        <p>Можна додавати, редагувати та видаляти анкори. План експортується в CSV/XLSX.</p>
+    `,
+    purchases: `
+        <h4>Закупки</h4>
+        <p>Список закуплених посилань з інтеграцією Collaborator.</p>
+        <ul>
+            <li><strong>URL</strong> — цільова сторінка</li>
+            <li><strong>Анкор</strong> — текст посилання</li>
+            <li><strong>Площадка</strong> — домен</li>
+            <li><strong>Статус</strong> — закуплено / в роботі / очікує</li>
+        </ul>
+        <p>Після завантаження вигрузки Collaborator статуси оновлюються автоматично. Можна замінити площадку через кнопку.</p>
+    `,
+    statistics: `
+        <h4>Статистика</h4>
+        <p>Агрегована статистика по позиціях, закупках та плану.</p>
+        <ul>
+            <li>Графіки за періодами</li>
+            <li>Порівняння плану з фактичними закупками</li>
+            <li>Покриття ключових слів</li>
+        </ul>
+    `,
+    settings: `
+        <h4>Налаштування</h4>
+        <p>Налаштування аналізу та пріоритетів.</p>
+        <ul>
+            <li><strong>Діапазони пріоритету</strong> — from/to та base_score для high, medium, low_top, low_bottom</li>
+            <li><strong>Бюджет</strong> — ліміт на закупки</li>
+            <li><strong>Пресети</strong> — збережені налаштування</li>
+            <li><strong>Історія</strong> — відновлення попередніх версій</li>
+        </ul>
+        <p>Після змін натисніть «Перерахувати план» для застосування.</p>
+    `,
+};
+
+const SECTION_HELP_TITLES = {
+    upload: "Довідка: Завантаження",
+    dashboard: "Довідка: Аналіз",
+    plan: "Довідка: Анкор-план",
+    purchases: "Довідка: Закупки",
+    statistics: "Довідка: Статистика",
+    settings: "Довідка: Налаштування",
+};
+
 function escapeTitle(s) {
     if (s == null || s === undefined) return "";
     return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -418,16 +541,117 @@ function sortDashboardData(data, column, direction) {
     });
 }
 
+function matchPositionRange(pos, range, customMin, customMax, customExact) {
+    if (range === "range") {
+        const min = customMin != null && customMin !== "" ? parseInt(customMin, 10) : null;
+        const max = customMax != null && customMax !== "" ? parseInt(customMax, 10) : null;
+        if (min != null || max != null) {
+            if (pos == null) return false;
+            if (min != null && pos < min) return false;
+            if (max != null && pos > max) return false;
+            return true;
+        }
+    }
+    if (range === "exact" && customExact != null && customExact !== "") {
+        const v = parseInt(customExact, 10);
+        return !isNaN(v) && pos === v;
+    }
+    if (!range || range === "range" || range === "exact") return true;
+    if (pos == null) return range === "none";
+    if (range === "none") return false;
+    if (range === "1-3") return pos >= 1 && pos <= 3;
+    if (range === "4-10") return pos >= 4 && pos <= 10;
+    if (range === "11-20") return pos >= 11 && pos <= 20;
+    if (range === "21-50") return pos >= 21 && pos <= 50;
+    if (range === "51-100") return pos >= 51 && pos <= 100;
+    if (range === "101+") return pos > 100;
+    return true;
+}
+
+function matchNumericRange(val, range, customMin, customMax, customExact) {
+    if (range === "range") {
+        const min = customMin != null && customMin !== "" ? parseInt(customMin, 10) : null;
+        const max = customMax != null && customMax !== "" ? parseInt(customMax, 10) : null;
+        if (min != null || max != null) {
+            if (min != null && val < min) return false;
+            if (max != null && val > max) return false;
+            return true;
+        }
+    }
+    if (range === "exact" && customExact != null && customExact !== "") {
+        const v = parseInt(customExact, 10);
+        return !isNaN(v) && val === v;
+    }
+    if (!range || range === "range" || range === "exact") return true;
+    if (range === "0") return val === 0;
+    if (range === "1-5") return val >= 1 && val <= 5;
+    if (range === "6-20") return val >= 6 && val <= 20;
+    if (range === "21-50") return val >= 21 && val <= 50;
+    if (range === "51-100") return val >= 51 && val <= 100;
+    if (range === "101+") return val > 100;
+    if (range === "51+") return val > 50;
+    return true;
+}
+
+function toggleFilterCustomInputs(filterId, mode) {
+    const rangeEl = document.getElementById(`${filterId}-range-inputs`);
+    const exactEl = document.getElementById(`${filterId}-exact-input`);
+    if (rangeEl) rangeEl.style.display = mode === "range" ? "inline-flex" : "none";
+    if (exactEl) exactEl.style.display = mode === "exact" ? "inline-flex" : "none";
+}
+
+function setupFilterCustomInputs() {
+    const filters = [
+        { id: "position", hasCustom: true },
+        { id: "backlinks", hasCustom: true },
+        { id: "unique-anchors", hasCustom: true },
+    ];
+    filters.forEach(({ id }) => {
+        const sel = document.getElementById(`${id}-filter`);
+        if (!sel) return;
+        sel.addEventListener("change", () => {
+            const v = sel.value;
+            toggleFilterCustomInputs(id, v === "range" ? "range" : v === "exact" ? "exact" : null);
+            filterDashboard();
+        });
+        ["min", "max", "exact"].forEach((suffix) => {
+            const inp = document.getElementById(`${id}-${suffix}`);
+            if (inp) inp.addEventListener("input", filterDashboard);
+        });
+    });
+}
+
 function applyDashboardFiltersAndSort() {
     const search = document.getElementById("dashboard-search").value.toLowerCase();
     const priority = document.getElementById("priority-filter").value;
     const rec = document.getElementById("recommendation-filter").value;
+    const positionRange = document.getElementById("position-filter")?.value || "";
+    const dynamics = document.getElementById("dynamics-filter")?.value || "";
+    const backlinksRange = document.getElementById("backlinks-filter")?.value || "";
+    const uniqueAnchorsRange = document.getElementById("unique-anchors-filter")?.value || "";
+
+    const posMin = document.getElementById("position-min")?.value;
+    const posMax = document.getElementById("position-max")?.value;
+    const posExact = document.getElementById("position-exact")?.value;
+    const blMin = document.getElementById("backlinks-min")?.value;
+    const blMax = document.getElementById("backlinks-max")?.value;
+    const blExact = document.getElementById("backlinks-exact")?.value;
+    const uaMin = document.getElementById("unique-anchors-min")?.value;
+    const uaMax = document.getElementById("unique-anchors-max")?.value;
+    const uaExact = document.getElementById("unique-anchors-exact")?.value;
 
     let filtered = state.analysis;
     if (search) filtered = filtered.filter((p) =>
         p.url.toLowerCase().includes(search) || (p.keywords || []).some((k) => k.keyword.toLowerCase().includes(search)));
     if (priority) filtered = filtered.filter((p) => p.priority === priority);
     if (rec) filtered = filtered.filter((p) => p.recommendation === rec);
+    if (positionRange) filtered = filtered.filter((p) =>
+        matchPositionRange(p.best_keyword?.current_position, positionRange, posMin, posMax, posExact));
+    if (dynamics) filtered = filtered.filter((p) => (p.best_keyword?.dynamics_label || "stable") === dynamics);
+    if (backlinksRange) filtered = filtered.filter((p) =>
+        matchNumericRange(p.total_backlinks ?? 0, backlinksRange, blMin, blMax, blExact));
+    if (uniqueAnchorsRange) filtered = filtered.filter((p) =>
+        matchNumericRange(p.anchor_profile?.unique_anchors ?? 0, uniqueAnchorsRange, uaMin, uaMax, uaExact));
 
     const sorted = sortDashboardData(filtered, state.dashboardSort.column, state.dashboardSort.direction);
     renderDashboardTable(sorted);
@@ -600,6 +824,8 @@ document.getElementById("btn-generate-plan").addEventListener("click", async () 
 document.getElementById("dashboard-search").addEventListener("input", filterDashboard);
 document.getElementById("priority-filter").addEventListener("change", filterDashboard);
 document.getElementById("recommendation-filter").addEventListener("change", filterDashboard);
+document.getElementById("dynamics-filter")?.addEventListener("change", filterDashboard);
+setupFilterCustomInputs();
 
 // Dashboard sort - delegate to thead
 document.querySelector("#dashboard-table thead").addEventListener("click", (e) => {
@@ -2078,6 +2304,33 @@ document.getElementById("replace-site-modal").addEventListener("click", (e) => {
 // Live filters in modal
 document.getElementById("replace-search").addEventListener("input", renderReplaceSitesTable);
 document.getElementById("replace-max-price").addEventListener("input", renderReplaceSitesTable);
+
+// Section help modal
+document.querySelectorAll(".section-help-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+        const section = btn.dataset.section;
+        const content = SECTION_HELP_CONTENT[section];
+        const title = SECTION_HELP_TITLES[section] || "Довідка";
+        if (content) {
+            document.getElementById("section-help-title").textContent = title;
+            document.getElementById("section-help-content").innerHTML = content.trim();
+            document.getElementById("section-help-modal").style.display = "flex";
+        }
+    });
+});
+document.getElementById("section-help-close").addEventListener("click", () => {
+    document.getElementById("section-help-modal").style.display = "none";
+});
+document.getElementById("section-help-modal").addEventListener("click", (e) => {
+    if (e.target.id === "section-help-modal") {
+        document.getElementById("section-help-modal").style.display = "none";
+    }
+});
+document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && document.getElementById("section-help-modal").style.display === "flex") {
+        document.getElementById("section-help-modal").style.display = "none";
+    }
+});
 
 // ========== Statistics Section ==========
 

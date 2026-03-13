@@ -53,7 +53,10 @@
         <!-- Upload Section -->
         <section id="upload-section" class="section active">
             <div class="section-header">
-                <h1>Завантаження даних</h1>
+                <div class="section-title-row">
+                    <h1>Завантаження даних</h1>
+                    <button type="button" class="section-help-btn" data-section="upload" title="Довідка по сторінці"><i class="fas fa-info-circle"></i></button>
+                </div>
                 <p>Завантажте файл позицій та вигрузку беклінків (Ahrefs або Collaborator)</p>
             </div>
 
@@ -144,7 +147,10 @@ https://example.com/page,тут,https://other.com/post,nofollow</pre>
         <!-- Dashboard Section -->
         <section id="dashboard-section" class="section">
             <div class="section-header">
-                <h1>Аналіз сторінок</h1>
+                <div class="section-title-row">
+                    <h1>Аналіз сторінок</h1>
+                    <button type="button" class="section-help-btn" data-section="dashboard" title="Довідка по сторінці"><i class="fas fa-info-circle"></i></button>
+                </div>
                 <p>Зведена інформація по кожному URL: позиції, анкорний профіль, пріоритет</p>
             </div>
 
@@ -195,6 +201,89 @@ https://example.com/page,тут,https://other.com/post,nofollow</pre>
                         <option value="observe">Спостерігати</option>
                         <option value="not_recommended">Не рекомендовано</option>
                     </select>
+                    <div class="filter-block" data-filter="position">
+                        <select id="position-filter" title="Фільтр по позиції">
+                            <optgroup label="Готові варіанти">
+                                <option value="">Позиція</option>
+                                <option value="1-3">1–3</option>
+                                <option value="4-10">4–10</option>
+                                <option value="11-20">11–20</option>
+                                <option value="21-50">21–50</option>
+                                <option value="51-100">51–100</option>
+                                <option value="101+">>100</option>
+                                <option value="none">Без позиції</option>
+                            </optgroup>
+                            <optgroup label="Власні умови">
+                                <option value="range">Діапазон</option>
+                                <option value="exact">Точне</option>
+                            </optgroup>
+                        </select>
+                        <span class="filter-range-inputs" id="position-range-inputs" style="display:none">
+                            <input type="number" id="position-min" placeholder="мін" min="1" max="1000">
+                            <span class="filter-sep">—</span>
+                            <input type="number" id="position-max" placeholder="макс" min="1" max="1000">
+                        </span>
+                        <span class="filter-exact-input" id="position-exact-input" style="display:none">
+                            <input type="number" id="position-exact" placeholder="значення" min="1" max="1000">
+                        </span>
+                    </div>
+                    <div class="filter-block" data-filter="dynamics">
+                        <select id="dynamics-filter" title="Фільтр по динаміці">
+                            <option value="">Динаміка</option>
+                            <option value="growth">Зростання</option>
+                            <option value="stable">Стабільно</option>
+                            <option value="decline">Падіння</option>
+                        </select>
+                    </div>
+                    <div class="filter-block" data-filter="backlinks">
+                        <select id="backlinks-filter" title="Фільтр по кількості беклінків">
+                            <optgroup label="Готові варіанти">
+                                <option value="">Беклінки</option>
+                                <option value="0">0</option>
+                                <option value="1-5">1–5</option>
+                                <option value="6-20">6–20</option>
+                                <option value="21-50">21–50</option>
+                                <option value="51-100">51–100</option>
+                                <option value="101+">>100</option>
+                            </optgroup>
+                            <optgroup label="Власні умови">
+                                <option value="range">Діапазон</option>
+                                <option value="exact">Точне</option>
+                            </optgroup>
+                        </select>
+                        <span class="filter-range-inputs" id="backlinks-range-inputs" style="display:none">
+                            <input type="number" id="backlinks-min" placeholder="мін" min="0">
+                            <span class="filter-sep">—</span>
+                            <input type="number" id="backlinks-max" placeholder="макс" min="0">
+                        </span>
+                        <span class="filter-exact-input" id="backlinks-exact-input" style="display:none">
+                            <input type="number" id="backlinks-exact" placeholder="значення" min="0">
+                        </span>
+                    </div>
+                    <div class="filter-block" data-filter="unique-anchors">
+                        <select id="unique-anchors-filter" title="Фільтр по унікальних анкорах">
+                            <optgroup label="Готові варіанти">
+                                <option value="">Унік. анкорів</option>
+                                <option value="0">0</option>
+                                <option value="1-5">1–5</option>
+                                <option value="6-20">6–20</option>
+                                <option value="21-50">21–50</option>
+                                <option value="51+">>50</option>
+                            </optgroup>
+                            <optgroup label="Власні умови">
+                                <option value="range">Діапазон</option>
+                                <option value="exact">Точне</option>
+                            </optgroup>
+                        </select>
+                        <span class="filter-range-inputs" id="unique-anchors-range-inputs" style="display:none">
+                            <input type="number" id="unique-anchors-min" placeholder="мін" min="0">
+                            <span class="filter-sep">—</span>
+                            <input type="number" id="unique-anchors-max" placeholder="макс" min="0">
+                        </span>
+                        <span class="filter-exact-input" id="unique-anchors-exact-input" style="display:none">
+                            <input type="number" id="unique-anchors-exact" placeholder="значення" min="0">
+                        </span>
+                    </div>
                 </div>
             </div>
 
@@ -225,7 +314,10 @@ https://example.com/page,тут,https://other.com/post,nofollow</pre>
             <div class="section-header">
                 <div class="section-header-row">
                     <div>
-                        <h1>Анкор-план</h1>
+                        <div class="section-title-row">
+                            <h1>Анкор-план</h1>
+                            <button type="button" class="section-help-btn" data-section="plan" title="Довідка по сторінці"><i class="fas fa-info-circle"></i></button>
+                        </div>
                         <p>Рекомендовані анкори для закупки посилань</p>
                     </div>
                     <div class="header-actions">
@@ -302,7 +394,10 @@ https://example.com/page,тут,https://other.com/post,nofollow</pre>
             <div class="section-header">
                 <div class="section-header-row">
                     <div>
-                        <h1>Закупки</h1>
+                        <div class="section-title-row">
+                            <h1>Закупки</h1>
+                            <button type="button" class="section-help-btn" data-section="purchases" title="Довідка по сторінці"><i class="fas fa-info-circle"></i></button>
+                        </div>
                         <p>Підбір площадок під анкор-план з урахуванням бюджету та фільтрів</p>
                     </div>
                     <div class="header-actions">
@@ -361,7 +456,10 @@ https://example.com/page,тут,https://other.com/post,nofollow</pre>
         <!-- Statistics Section -->
         <section id="statistics-section" class="section">
             <div class="section-header">
-                <h1>Статистика закупок</h1>
+                <div class="section-title-row">
+                    <h1>Статистика закупок</h1>
+                    <button type="button" class="section-help-btn" data-section="statistics" title="Довідка по сторінці"><i class="fas fa-info-circle"></i></button>
+                </div>
                 <p>Аналіз закуплених посилань з вигрузки Ahrefs або Collaborator</p>
             </div>
 
@@ -463,7 +561,10 @@ https://example.com/page,тут,https://other.com/post,nofollow</pre>
         <!-- Settings Section -->
         <section id="settings-section" class="section">
             <div class="section-header">
-                <h1>Налаштування</h1>
+                <div class="section-title-row">
+                    <h1>Налаштування</h1>
+                    <button type="button" class="section-help-btn" data-section="settings" title="Довідка по сторінці"><i class="fas fa-info-circle"></i></button>
+                </div>
                 <p>Зміна параметрів генерації анкор-плану</p>
             </div>
 
@@ -776,6 +877,19 @@ https://example.com/page,тут,https://other.com/post,nofollow</pre>
                         <button class="btn btn-sm btn-primary" id="replace-manual-btn">Призначити</button>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section Help Modal -->
+    <div class="modal-overlay" id="section-help-modal" style="display:none">
+        <div class="modal modal-help">
+            <div class="modal-header">
+                <h2 id="section-help-title">Довідка</h2>
+                <button class="modal-close" id="section-help-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="help-modal-content" id="section-help-content"></div>
             </div>
         </div>
     </div>

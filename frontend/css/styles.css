@@ -147,6 +147,30 @@ body {
     font-size: 15px;
 }
 
+.section-title-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.section-title-row h1 {
+    margin-bottom: 0;
+}
+
+.section-help-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    font-size: 18px;
+    transition: var(--transition);
+}
+
+.section-help-btn:hover {
+    color: var(--primary);
+}
+
 .section-header-row {
     display: flex;
     justify-content: space-between;
@@ -523,6 +547,7 @@ body {
 .filter-group {
     display: flex;
     gap: 8px;
+    flex-wrap: wrap;
 }
 
 .filter-group select {
@@ -550,6 +575,42 @@ body {
 .filter-group select option {
     background: var(--bg-card);
     color: var(--text);
+}
+
+.filter-block {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.filter-block select {
+    min-width: 100px;
+}
+.filter-range-inputs,
+.filter-exact-input {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.filter-range-inputs input,
+.filter-exact-input input {
+    width: 56px;
+    padding: 6px 8px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 12px;
+    text-align: center;
+}
+.filter-range-inputs input:focus,
+.filter-exact-input input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+.filter-sep {
+    color: var(--text-muted);
+    font-size: 12px;
 }
 
 /* Tables */
@@ -1620,6 +1681,84 @@ body {
 }
 .site-domain-link:hover {
     text-decoration: underline;
+}
+
+/* Section help modal */
+.modal-help {
+    max-width: 560px;
+    width: 95vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.modal-help .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.help-modal-content {
+    font-size: 14px;
+    line-height: 1.6;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+}
+
+.help-modal-content h4 {
+    margin: 0 0 12px;
+    font-size: 16px;
+}
+
+.help-modal-content h5 {
+    margin: 16px 0 8px;
+    font-size: 14px;
+    color: var(--text-muted);
+}
+
+.help-modal-content p,
+.help-modal-content ul {
+    margin: 0 0 12px;
+}
+
+.help-modal-content ul {
+    padding-left: 20px;
+}
+
+.help-modal-content code {
+    background: var(--bg-input);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+.help-modal-content .help-table-wrap {
+    overflow-x: auto;
+    margin: 12px 0;
+}
+
+.help-table {
+    width: 100%;
+    min-width: 320px;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.help-table th,
+.help-table td {
+    padding: 8px 12px;
+    text-align: left;
+    border: 1px solid var(--border);
+    word-wrap: break-word;
+}
+
+.help-table th {
+    background: var(--bg-input);
+    font-weight: 600;
 }
 
 /* Replace site modal */
