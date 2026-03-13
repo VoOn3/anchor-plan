@@ -14,16 +14,43 @@ def normalize_url(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}{path}"
 
 
+def url_to_canonical(url: str) -> str:
+    """
+    Канонічний URL для групування сторінок: https, без www, path без trailing slash.
+    Використовується для об'єднання www/non-www та http/https варіантів однієї сторінки.
+    """
+    if not url or not isinstance(url, str):
+        return ""
+    url = url.strip().lower()
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    path = parsed.path.rstrip("/") or "/"
+    return f"https://{host}{path}"
+
+
 def parse_positions_file(file_path: str) -> list[dict]:
     """
-    Очікуваний формат файлу позицій:
-    Колонки: URL | Keyword | дата1 | дата2 | ... | датаN
-    Значення в колонках дат — позиція ключа на цю дату.
+    Підтримує формати:
+    - Pivot: URL | Keyword | дата1 | дата2 | ... | датаN
+    - SE Ranking (long): Keyword | URL | SERP Date | Rank
     """
-    df = read_file(file_path)
+    df = read_positions_file(file_path)
 
+    # Спроба формату SE Ranking (long: один рядок на keyword-URL-дату)
+    if _is_seranking_format(df):
+        return _parse_seranking_positions(df)
+
+    # Стандартний pivot-формат
     url_col = find_column(df, ["url", "page", "сторінка", "landing page", "target url", "landing"])
     keyword_col = find_column(df, ["keyword", "ключ", "ключове слово", "query", "запит", "ключевое слово"])
+    volume_col = find_column(df, [
+        "volume", "search volume", "search_volume", "sv", "traffic", "частота", "частотность", "запитів",
+        "monthly searches", "monthly_searches"
+    ])
 
     if not url_col or not keyword_col:
         raise ValueError(
@@ -31,7 +58,7 @@ def parse_positions_file(file_path: str) -> list[dict]:
             "Переконайтесь, що файл містить колонки з назвами на кшталт 'URL' та 'Keyword'."
         )
 
-    date_columns = [c for c in df.columns if c not in [url_col, keyword_col] and is_date_like(c)]
+    date_columns = [c for c in df.columns if c not in [url_col, keyword_col, volume_col] and is_date_like(c)]
 
     if not date_columns:
         raise ValueError("Не знайдено колонок з датами позицій.")
@@ -50,14 +77,91 @@ def parse_positions_file(file_path: str) -> list[dict]:
             if pos is not None:
                 positions[str(dc)] = pos
 
+        volume = None
+        if volume_col and pd.notna(row.get(volume_col)):
+            volume = parse_volume(row[volume_col])
+
         if positions:
-            results.append({
-                "url": url,
-                "keyword": keyword,
-                "positions": positions,
-            })
+            item = {"url": url, "keyword": keyword, "positions": positions}
+            if volume is not None:
+                item["volume"] = volume
+            results.append(item)
 
     return results
+
+
+def _is_seranking_format(df: pd.DataFrame) -> bool:
+    """SE Ranking: long-формат — Keyword, URL, SERP Date, Rank (один рядок на дату)."""
+    date_like_cols = [c for c in df.columns if is_date_like(c)]
+    if len(date_like_cols) > 2:
+        return False  # Pivot: багато колонок-дат
+    kw_col = find_column(df, ["keyword", "ключ", "ключове слово", "query", "ключевое слово"])
+    url_col = find_column(df, ["url", "page", "landing page", "target url", "landing", "сторінка"])
+    date_col = find_column(df, ["serp date", "date", "дата", "updated on", "serp_date"])
+    rank_col = find_column(df, ["rank", "position", "позиція", "position change"])
+    return bool(kw_col and url_col and date_col and rank_col)
+
+
+def _parse_seranking_positions(df: pd.DataFrame) -> list[dict]:
+    """Парсить long-формат SE Ranking: групує по (url, keyword), збирає positions з date+rank."""
+    kw_col = find_column(df, ["keyword", "ключ", "ключове слово", "query", "ключевое слово"])
+    url_col = find_column(df, ["url", "page", "landing page", "target url", "landing", "сторінка"])
+    date_col = find_column(df, ["serp date", "date", "дата", "updated on", "serp_date"])
+    rank_col = find_column(df, ["rank", "position", "позиція", "position change"])
+    volume_col = find_column(df, [
+        "volume", "search volume", "search_volume", "sv", "traffic", "частота", "частотность",
+        "monthly searches", "monthly_searches"
+    ])
+
+    grouped: dict[tuple[str, str], dict] = {}
+    for _, row in df.iterrows():
+        url = normalize_url(str(row[url_col]))
+        keyword = str(row[kw_col]).strip()
+        if not url or not keyword:
+            continue
+        date_val = row.get(date_col)
+        if pd.isna(date_val):
+            continue
+        date_str = _normalize_date_column(date_val)
+        if not date_str:
+            continue
+        pos = parse_position(row.get(rank_col))
+        key = (url, keyword)
+        if key not in grouped:
+            vol = None
+            if volume_col and pd.notna(row.get(volume_col)):
+                vol = parse_volume(row.get(volume_col))
+            grouped[key] = {"url": url, "keyword": keyword, "positions": {}, "volume": vol}
+        grouped[key]["positions"][date_str] = pos
+        if grouped[key]["volume"] is None and volume_col and pd.notna(row.get(volume_col)):
+            grouped[key]["volume"] = parse_volume(row.get(volume_col))
+
+    results = []
+    for g in grouped.values():
+        if g["positions"]:
+            item = {"url": g["url"], "keyword": g["keyword"], "positions": g["positions"]}
+            if g["volume"] is not None:
+                item["volume"] = g["volume"]
+            results.append(item)
+    return results
+
+
+def _normalize_date_column(val) -> str | None:
+    """Повертає YYYY-MM-DD для колонки дати."""
+    if pd.isna(val):
+        return None
+    s = str(val).strip()
+    if re.match(r"\d{4}-\d{2}-\d{2}", s):
+        try:
+            dt = pd.to_datetime(s[:10])
+            return dt.strftime("%Y-%m-%d")
+        except (ValueError, TypeError):
+            pass
+    try:
+        dt = pd.to_datetime(val, dayfirst=True)
+        return dt.strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return None
 
 
 def parse_ahrefs_file(file_path: str) -> list[dict]:
@@ -70,6 +174,29 @@ def parse_ahrefs_file(file_path: str) -> list[dict]:
         return _parse_collaborator_export(file_path)
 
     return _parse_ahrefs_standard(file_path)
+
+
+def parse_ahrefs_backlinks(file_path: str) -> list[dict]:
+    """Парсить тільки формат Ahrefs, додає source: 'ahrefs'."""
+    data = _parse_ahrefs_standard(file_path)
+    for item in data:
+        item["source"] = "ahrefs"
+    return data
+
+
+def parse_collaborator_backlinks(file_path: str) -> list[dict]:
+    """Парсить тільки формат Collaborator (XLSX з Розподіл по операціях), додає source: 'collaborator'."""
+    data = _parse_collaborator_export(file_path)
+    for item in data:
+        item["source"] = "collaborator"
+    return data
+
+
+def parse_backlinks_auto(file_path: str) -> list[dict]:
+    """Автовизначення формату (зворотна сумісність для старих проектів)."""
+    if _is_collaborator_export(file_path):
+        return parse_collaborator_backlinks(file_path)
+    return parse_ahrefs_backlinks(file_path)
 
 
 def _is_collaborator_export(file_path: str) -> bool:
@@ -305,6 +432,35 @@ def read_file(file_path: str) -> pd.DataFrame:
         raise ValueError(f"Непідтримуваний формат файлу: {file_path}")
 
 
+def read_positions_file(file_path: str) -> pd.DataFrame:
+    """Читає CSV позицій, пропускаючи рядок метаданих якщо є (напр. Avrora, Seranking)."""
+    if not file_path.endswith(".csv"):
+        return read_file(file_path)
+    for encoding in ["utf-8", "utf-8-sig", "cp1251", "latin-1"]:
+        for sep in [",", ";", "\t"]:
+            try:
+                df0 = pd.read_csv(file_path, encoding=encoding, sep=sep, header=0)
+                first_val = str(df0.columns[0]) if len(df0.columns) else ""
+                first_cell = str(df0.iloc[0, 0]) if len(df0) and len(df0.columns) else ""
+                # Пропустити рядок метаданих (напр. "Google Mobile Украина...")
+                skip = (
+                    len(df0.columns) == 1
+                    or "google" in first_val.lower()
+                    or "google" in first_cell.lower()
+                    or "українська" in first_val.lower()
+                    or "українська" in first_cell.lower()
+                )
+                if skip or len(df0.columns) < 2:
+                    df = pd.read_csv(file_path, encoding=encoding, sep=sep, header=1)
+                    if len(df.columns) > 1:
+                        return df
+                elif len(df0.columns) >= 2:
+                    return df0
+            except Exception:
+                continue
+    return read_file(file_path)
+
+
 def find_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
     columns_lower = {c.strip().lower(): c for c in df.columns}
     for candidate in candidates:
@@ -336,24 +492,28 @@ def is_date_like(col_name) -> bool:
     return False
 
 
-def parse_position(val) -> int | None:
+NO_POSITION_PLACEHOLDER = 101  # Позиція 100+ при відсутності даних
+
+
+def parse_position(val) -> int:
     if pd.isna(val):
-        return None
+        return NO_POSITION_PLACEHOLDER
+    val_str = str(val).strip()
+    no_data_values = ("-", "", "n/a", "—", "–", "нет данных", "немає даних")
+    if val_str.lower() in (v.lower() for v in no_data_values):
+        return NO_POSITION_PLACEHOLDER
     try:
         num = int(float(val))
         if 1 <= num <= 1000:
             return num
     except (ValueError, TypeError):
         pass
-    val_str = str(val).strip()
-    if val_str in ("-", "", "n/a", "—", "–"):
-        return None
     match = re.search(r"\d+", val_str)
     if match:
         num = int(match.group())
         if 1 <= num <= 1000:
             return num
-    return None
+    return NO_POSITION_PLACEHOLDER
 
 
 def safe_float(val) -> float | None:
@@ -363,6 +523,25 @@ def safe_float(val) -> float | None:
         return float(val)
     except (ValueError, TypeError):
         return None
+
+
+def parse_volume(val) -> int | None:
+    """Парсить частоту запитів (search volume). Повертає int або None."""
+    if pd.isna(val):
+        return None
+    try:
+        num = int(float(val))
+        if num >= 0:
+            return num
+    except (ValueError, TypeError):
+        pass
+    val_str = str(val).strip().replace("\xa0", "").replace(",", "").replace(" ", "")
+    match = re.search(r"\d+", val_str)
+    if match:
+        num = int(match.group())
+        if num >= 0:
+            return num
+    return None
 
 
 def parse_collaborator_file(file_path: str) -> list[dict]:

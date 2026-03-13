@@ -57,34 +57,35 @@
                     <h1>Завантаження даних</h1>
                     <button type="button" class="section-help-btn" data-section="upload" title="Довідка по сторінці"><i class="fas fa-info-circle"></i></button>
                 </div>
-                <p>Завантажте файл позицій та вигрузку беклінків (Ahrefs або Collaborator)</p>
+                <p>Завантажте файл позицій та вигрузку беклінків (Ahrefs і/або Collaborator)</p>
             </div>
 
             <div class="upload-info-block">
                 <h4><i class="fas fa-info-circle"></i> Вимоги до файлів</h4>
                 <div class="upload-info-grid">
                     <div class="upload-info-item">
-                        <strong>Реєстр позицій (CSV/XLSX)</strong>
+                        <strong>Реєстр позицій (CSV/XLSX або Google Таблиця)</strong>
                         <ul>
-                            <li>Обов'язкові колонки: <code>URL</code> (або Page, Сторінка), <code>Keyword</code> (або Ключ, Query)</li>
+                            <li><strong>Файл:</strong> Обов'язкові колонки <code>URL</code> (або Page, Сторінка), <code>Keyword</code> (або Ключ, Query)</li>
+                            <li><strong>Google Таблиця:</strong> Вставте посилання, оберіть лист. Рядок заголовків (1–30) та колонки визначаються автоматично (можна змінити). Потрібен API ключ: змінна <code>GOOGLE_SHEETS_API_KEY</code></li>
+                            <li>Опційно: <code>Volume</code> (або Search Volume, Частота) — частота запитів на місяць</li>
                             <li>Колонки з датами (YYYY-MM-DD, DD.MM.YYYY) — позиція ключа на цю дату</li>
                             <li>Значення в колонках дат: число 1–1000 або порожнє</li>
                         </ul>
                         <details class="upload-example">
                             <summary>Приклад CSV</summary>
-                            <pre>URL,Keyword,2024-01-15,2024-02-15
-https://example.com/page,ключове слово,12,8
-https://example.com/blog,crm система,25,18</pre>
+                            <pre>URL,Keyword,Volume,2024-01-15,2024-02-15
+https://example.com/page,ключове слово,1200,12,8
+https://example.com/blog,crm система,450,25,18</pre>
                             <button type="button" class="btn btn-sm btn-outline upload-download-example" data-example="positions">
                                 <i class="fas fa-download"></i> Завантажити приклад
                             </button>
                         </details>
                     </div>
                     <div class="upload-info-item">
-                        <strong>Вигрузка беклінків (CSV/XLSX)</strong>
+                        <strong>Вигрузка беклінків — Ahrefs (CSV/XLSX)</strong>
                         <ul>
-                            <li><strong>Ahrefs:</strong> обов'язкова колонка <code>Anchor</code> (або Анкор). Опційно: Target URL, Referring Page, Type, DR, Traffic</li>
-                            <li><strong>Collaborator:</strong> XLSX з листом «Розподіл по операціях», колонки «Анкори» та «Цільова сторінка»</li>
+                            <li>Обов'язкова колонка <code>Anchor</code> (або Анкор). Опційно: Target URL, Referring Page, Type, DR, Traffic</li>
                         </ul>
                         <details class="upload-example">
                             <summary>Приклад Ahrefs CSV</summary>
@@ -96,34 +97,74 @@ https://example.com/page,тут,https://other.com/post,nofollow</pre>
                             </button>
                         </details>
                     </div>
+                    <div class="upload-info-item">
+                        <strong>Вигрузка беклінків — Collaborator (XLSX)</strong>
+                        <ul>
+                            <li>XLSX з листом «Розподіл по операціях», колонки «Анкори» та «Цільова сторінка»</li>
+                        </ul>
+                    </div>
                 </div>
             </div>
 
             <div class="upload-grid">
                 <div class="upload-card" id="positions-upload">
-                    <div class="upload-dropzone" data-input="positions-file">
-                        <i class="fas fa-chart-line"></i>
-                        <h3>Реєстр позицій</h3>
-                        <p>CSV або XLSX файл з позиціями ключових слів</p>
-                        <span class="upload-hint">Колонки: URL | Keyword | Дата1 | Дата2 | ...</span>
-                        <input type="file" id="positions-file" accept=".csv,.xlsx,.xls" hidden>
-                        <button class="btn btn-outline">Обрати файл</button>
+                    <div class="positions-source-tabs">
+                        <button type="button" class="positions-tab active" data-mode="file"><i class="fas fa-file-alt"></i> Файл</button>
+                        <button type="button" class="positions-tab" data-mode="google"><i class="fab fa-google"></i> Google Таблиця</button>
+                    </div>
+                    <div class="positions-mode positions-mode-file" id="positions-mode-file">
+                        <div class="upload-dropzone" data-input="positions-file">
+                            <i class="fas fa-chart-line"></i>
+                            <h3>Реєстр позицій</h3>
+                            <p>CSV або XLSX файл з позиціями ключових слів</p>
+                            <span class="upload-hint">Колонки: URL | Keyword | Дата1 | Дата2 | ...</span>
+                            <input type="file" id="positions-file" accept=".csv,.xlsx,.xls" hidden>
+                            <button class="btn btn-outline">Обрати файл</button>
+                        </div>
+                    </div>
+                    <div class="positions-mode positions-mode-google" id="positions-mode-google" style="display:none">
+                        <div class="gs-form">
+                            <label>URL Google Таблиці</label>
+                            <input type="url" id="gs-url" placeholder="https://docs.google.com/spreadsheets/d/...">
+                            <button type="button" class="btn btn-outline btn-sm" id="gs-fetch-sheets"><i class="fas fa-sync-alt"></i> Отримати листи</button>
+                            <label>Лист</label>
+                            <select id="gs-sheet-select" disabled>
+                                <option value="">— Оберіть лист —</option>
+                            </select>
+                            <button type="button" class="btn btn-outline btn-sm" id="gs-configure-cols"><i class="fas fa-columns"></i> Налаштувати колонки</button>
+                        </div>
                     </div>
                     <div class="upload-status" id="positions-status"></div>
+                    <div class="upload-uploaded-at" id="positions-uploaded-at"></div>
                     <div class="upload-validation-msg" id="positions-validation"></div>
                 </div>
 
                 <div class="upload-card" id="ahrefs-upload">
                     <div class="upload-dropzone" data-input="ahrefs-file">
                         <i class="fas fa-link"></i>
-                        <h3>Вигрузка беклінків</h3>
-                        <p>Ahrefs (Backlinks/Anchors) або вигрузка з Collaborator</p>
-                        <span class="upload-hint">Ahrefs: Target URL | Anchor | ... &nbsp;або&nbsp; Collaborator: Анкори | Цільова сторінка | ...</span>
+                        <h3>Ahrefs</h3>
+                        <p>Вигрузка беклінків (Backlinks/Anchors)</p>
+                        <span class="upload-hint">Target URL | Anchor | Referring Page | ...</span>
                         <input type="file" id="ahrefs-file" accept=".csv,.xlsx,.xls" hidden>
                         <button class="btn btn-outline">Обрати файл</button>
                     </div>
                     <div class="upload-status" id="ahrefs-status"></div>
+                    <div class="upload-uploaded-at" id="ahrefs-uploaded-at"></div>
                     <div class="upload-validation-msg" id="ahrefs-validation"></div>
+                </div>
+
+                <div class="upload-card" id="collaborator-upload">
+                    <div class="upload-dropzone" data-input="collaborator-file">
+                        <i class="fas fa-handshake"></i>
+                        <h3>Collaborator</h3>
+                        <p>Вигрузка беклінків з Collaborator</p>
+                        <span class="upload-hint">XLSX: Анкори | Цільова сторінка | ...</span>
+                        <input type="file" id="collaborator-file" accept=".xlsx,.xls" hidden>
+                        <button class="btn btn-outline">Обрати файл</button>
+                    </div>
+                    <div class="upload-status" id="collaborator-status"></div>
+                    <div class="upload-uploaded-at" id="collaborator-uploaded-at"></div>
+                    <div class="upload-validation-msg" id="collaborator-validation"></div>
                 </div>
             </div>
 
@@ -135,7 +176,7 @@ https://example.com/page,тут,https://other.com/post,nofollow</pre>
 
             <button class="btn btn-primary btn-lg" id="analyze-btn" disabled>
                 <i class="fas fa-magic"></i>
-                Побудувати анкор-план
+                <span class="analyze-btn-text">Побудувати анкор-план</span>
             </button>
 
             <div class="loader" id="loader" style="display:none">
@@ -296,6 +337,7 @@ https://example.com/page,тут,https://other.com/post,nofollow</pre>
                             <th data-sort="recommendation" class="sortable" title="Рекомендація щодо закупок">Рекомендація</th>
                             <th data-sort="priority" class="sortable" title="Пріоритет сторінки">Пріоритет</th>
                             <th data-sort="best_keyword" class="sortable" title="Кращий ключ за позицією">Кращий ключ</th>
+                            <th data-sort="best_keyword_volume" class="sortable" title="Частота запитів (search volume)">Частота</th>
                             <th data-sort="position" class="sortable" title="Позиція в пошуку">Позиція</th>
                             <th data-sort="dynamics" class="sortable" title="Динаміка позиції">Динаміка</th>
                             <th data-sort="total_backlinks" class="sortable" title="Всього беклінків">Беклінки</th>
@@ -378,6 +420,7 @@ https://example.com/page,тут,https://other.com/post,nofollow</pre>
                             <th>Рекомендований анкор</th>
                             <th>Тип</th>
                             <th>Цільовий ключ</th>
+                            <th>Частота</th>
                             <th>Позиція</th>
                             <th>Динаміка</th>
                             <th>Обґрунтування</th>
@@ -438,6 +481,7 @@ https://example.com/page,тут,https://other.com/post,nofollow</pre>
                             <th>URL</th>
                             <th>Анкор</th>
                             <th>Тип</th>
+                            <th>Частота</th>
                             <th>Площадка</th>
                             <th>DR</th>
                             <th>Трафік</th>
@@ -547,6 +591,7 @@ https://example.com/page,тут,https://other.com/post,nofollow</pre>
                             <th style="width:30px"></th>
                             <th data-sort="url" class="sortable">Цільова URL</th>
                             <th data-sort="count" class="sortable">Посилань</th>
+                            <th data-sort="volume" class="sortable">Частота</th>
                             <th data-sort="cost" class="sortable">Витрачено</th>
                             <th>Типи анкорів</th>
                         </tr>
@@ -725,7 +770,46 @@ https://example.com/page,тут,https://other.com/post,nofollow</pre>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-outline" id="upload-plan-cancel">Скасувати</button>
-                <button class="btn btn-primary" id="upload-plan-confirm" disabled><i class="fas fa-upload"></i> Завантажити</button>
+                <button class="btn btn-primary" id="upload-plan-confirm">Завантажити</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Google Sheets Column Mapping Modal -->
+    <div class="modal-overlay" id="gs-columns-modal" style="display:none">
+        <div class="modal" style="max-width:560px">
+            <div class="modal-header">
+                <h2>Відповідність колонок</h2>
+                <button class="modal-close" id="gs-columns-modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="gs-cols-hint">Оберіть, з яких колонок брати дані. Можна змінити автоматично визначені значення.</p>
+                <div class="gs-mapping-form" id="gs-mapping-form">
+                    <div class="gs-mapping-row">
+                        <label>URL сторінки</label>
+                        <select id="gs-map-url"></select>
+                    </div>
+                    <div class="gs-mapping-row">
+                        <label>Ключове слово</label>
+                        <select id="gs-map-keyword"></select>
+                    </div>
+                    <div class="gs-mapping-row">
+                        <label>Частота</label>
+                        <select id="gs-map-volume"></select>
+                    </div>
+                    <div class="gs-mapping-row">
+                        <label>Категорія</label>
+                        <select id="gs-map-category"></select>
+                    </div>
+                    <div class="gs-mapping-row gs-date-cols">
+                        <label>Колонки з датами (позиції)</label>
+                        <div class="gs-date-checkboxes" id="gs-date-checkboxes"></div>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline" id="gs-reset-mapping"><i class="fas fa-undo"></i> Скинути до авто-визначення</button>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" id="gs-columns-done">Готово</button>
             </div>
         </div>
     </div>

@@ -273,7 +273,7 @@ body {
 
 .upload-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: 24px;
     margin-bottom: 28px;
 }
@@ -340,6 +340,114 @@ body {
     font-size: 13px;
     color: var(--success);
 }
+
+.upload-uploaded-at {
+    padding: 0 24px 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.upload-card.has-uploaded {
+    border-color: rgba(0, 184, 148, 0.3);
+}
+
+/* Positions source tabs (File / Google Sheets) */
+.positions-source-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 12px 16px 0;
+    border-bottom: 1px solid var(--border);
+}
+.positions-tab {
+    padding: 8px 16px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    border-radius: var(--radius-sm);
+    transition: var(--transition);
+}
+.positions-tab:hover {
+    color: var(--text);
+}
+.positions-tab.active {
+    color: var(--primary);
+    background: var(--primary-light);
+}
+.positions-mode {
+    padding: 16px;
+}
+.positions-mode .upload-dropzone {
+    padding: 24px 20px;
+}
+.gs-form label {
+    display: block;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    margin-top: 12px;
+}
+.gs-form label:first-child { margin-top: 0; }
+.gs-form input[type="url"],
+.gs-form select {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 14px;
+}
+.gs-form input[type="url"]:focus,
+.gs-form select:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+.gs-form .btn-sm {
+    margin-top: 12px;
+}
+.gs-mapping-form .gs-mapping-row {
+    margin-bottom: 16px;
+}
+.gs-mapping-form .gs-mapping-row label {
+    display: block;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+.gs-mapping-form select {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+}
+.gs-date-checkboxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.gs-date-checkboxes label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 6px 10px;
+    background: var(--bg-input);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+}
+.gs-date-checkboxes label:hover { border-color: var(--border-hover); }
+.gs-date-checkboxes input { margin: 0; }
+.gs-cols-hint {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin-bottom: 16px;
+}
+#gs-reset-mapping { margin-bottom: 16px; }
 
 /* Brand Input */
 .brand-input-wrap {
@@ -713,6 +821,20 @@ body {
 .badge-branded { background: rgba(130, 177, 255, 0.2); color: #82b1ff; }
 .badge-generic { background: rgba(136, 136, 170, 0.2); color: var(--text-muted); }
 .badge-url { background: rgba(253, 203, 110, 0.2); color: var(--warning); }
+
+/* Source badges: P=positions, a=ahrefs, K=collaborator */
+.source-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+.badge-positions { background: rgba(0, 184, 148, 0.25); color: var(--success); }
+.badge-ahrefs { background: rgba(253, 203, 110, 0.25); color: #e67e22; }
+.badge-collaborator { background: rgba(130, 177, 255, 0.25); color: #3498db; }
 
 .dynamics-growth { color: var(--success); }
 .dynamics-decline { color: var(--danger); }

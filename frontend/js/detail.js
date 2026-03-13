@@ -98,27 +98,39 @@ function renderStats() {
     `;
 }
 
+function renderSourceBadges(sources) {
+    if (!sources || !Array.isArray(sources) || sources.length === 0) return "";
+    const labels = { positions: "P", ahrefs: "a", collaborator: "K" };
+    return sources.map((s) => `<span class="source-badge badge-${s}" title="${s === "positions" ? "Реєстр позицій" : s === "ahrefs" ? "Ahrefs" : "Collaborator"}">${labels[s] || s}</span>`).join("");
+}
+
 // --- Anchors Table ---
 function renderAnchorsTable(data) {
     const tbody = document.querySelector("#anchors-table tbody");
     tbody.innerHTML = data
         .map(
-            (a, i) => `
+            (a, i) => {
+                const volStr = a.volume != null && a.volume > 0 ? Number(a.volume).toLocaleString("uk-UA") : "—";
+                const targetKw = a.type === "exact_match" || (a.sources && a.sources.includes("positions")) ? a.anchor : "";
+                return `
         <tr>
-            <td>${escapeHtml(a.anchor)}</td>
+            <td>${escapeHtml(a.anchor)}${a.sources ? renderSourceBadges(a.sources) : ""}</td>
             <td>${a.count}</td>
             <td><span class="badge badge-${a.type}">${formatAnchorType(a.type)}</span></td>
             <td>${a.avg_dr !== null ? a.avg_dr : "—"}</td>
+            <td>${volStr}</td>
             <td>${a.dofollow}</td>
             <td>${a.nofollow}</td>
             <td>
                 <span class="donors-toggle" data-donors="${i}">${a.donors.length} донор(ів)</span>
                 <div class="donors-list" id="donors-${i}">
-                    ${a.donors.map((d) => `<a href="${escapeHtml(d)}" target="_blank" title="${escapeHtml(d)}">${shortenUrl(d)}</a>`).join("")}
+                    ${a.donors.map((d) => `<a href="${escapeHtml(ensureUrlProtocol(d))}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(d)}">${shortenUrl(d)}</a>`).join("")}
                 </div>
             </td>
+            <td><button class="btn-icon btn-add-to-plan" data-anchor="${escapeHtml(a.anchor)}" data-type="${a.type}" data-target="${escapeHtml(targetKw)}" data-volume="${a.volume != null ? a.volume : ""}" title="Додати в анкор-план"><i class="fas fa-plus"></i></button></td>
         </tr>
-    `
+    `;
+            }
         )
         .join("");
 
@@ -127,6 +139,9 @@ function renderAnchorsTable(data) {
             const list = document.getElementById(`donors-${toggle.dataset.donors}`);
             list.classList.toggle("open");
         });
+    });
+    tbody.querySelectorAll(".btn-add-to-plan").forEach((btn) => {
+        btn.addEventListener("click", (e) => addAnchorToPlan(e.currentTarget));
     });
 }
 
@@ -192,37 +207,118 @@ function renderKeywords() {
                           : `<span class="dynamics-stable">0</span>`
                     : "—";
 
+            const volStr = kw.volume != null ? Number(kw.volume).toLocaleString("uk-UA") : "—";
+            const kwSources = kw.source ? [kw.source] : ["positions"];
             return `
             <tr>
-                <td>${escapeHtml(kw.keyword)}</td>
+                <td>${escapeHtml(kw.keyword)}${renderSourceBadges(kwSources)}</td>
+                <td>${volStr}</td>
                 <td>${kw.first_position ?? "—"}</td>
                 <td>${kw.previous_position ?? "—"}</td>
                 <td><strong>${kw.current_position ?? "—"}</strong></td>
                 <td class="dynamics-${kw.dynamics_label}">${getDynamicsIcon(kw.dynamics_label)} ${kw.dynamics_label}</td>
                 <td>${changeStr}</td>
+                <td><button class="btn-icon btn-add-to-plan" data-anchor="${escapeHtml(kw.keyword)}" data-type="exact_match" data-target="${escapeHtml(kw.keyword)}" data-volume="${kw.volume != null ? kw.volume : ""}" title="Додати в анкор-план"><i class="fas fa-plus"></i></button></td>
             </tr>
         `;
         })
         .join("");
+    tbody.querySelectorAll(".btn-add-to-plan").forEach((btn) => {
+        btn.addEventListener("click", (e) => addAnchorToPlan(e.currentTarget));
+    });
+}
+
+// --- Add to Plan ---
+async function addAnchorToPlan(btn) {
+    const dataset = btn.dataset;
+    const url = detailData.url;
+    const anchor = dataset.anchor || "";
+    const anchorType = dataset.type || "partial_match";
+    const targetKeyword = dataset.target || "";
+    const volume = dataset.volume ? parseInt(dataset.volume, 10) : undefined;
+
+    if (!anchor) return;
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    }
+
+    try {
+        const body = { url, anchor, anchor_type: anchorType };
+        if (targetKeyword) body.target_keyword = targetKeyword;
+        if (volume != null && !isNaN(volume)) body.volume = volume;
+
+        const resp = await fetch(`${API_BASE}/projects/${projectId}/plan/add`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+
+        if (resp.status === 409) {
+            alert(data.error || "Такий анкор вже є в плані для цього URL");
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-plus"></i>';
+            }
+            return;
+        }
+
+        if (!resp.ok) {
+            alert(data.error || "Помилка додавання");
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-plus"></i>';
+            }
+            return;
+        }
+
+        // Оновлюємо рекомендації з відповіді (url і detailData.url вже канонічні)
+        if (data.plan) {
+            const ourUrl = (detailData.url || "").toLowerCase().trim();
+            detailData.recommendations = (data.plan || [])
+                .filter((r) => (r.url || "").toLowerCase().trim() === ourUrl)
+                .map((r) => ({
+                    recommended_anchor: r.recommended_anchor,
+                    anchor_type: r.anchor_type,
+                    target_keyword: r.target_keyword,
+                    volume: r.volume,
+                    rationale: r.rationale,
+                }));
+            renderRecommendations();
+        }
+    } catch (err) {
+        alert("Помилка: " + err.message);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-plus"></i>';
+        }
+    }
 }
 
 // --- Recommendations ---
 function renderRecommendations() {
     const tbody = document.querySelector("#recommendations-table tbody");
     if (!detailData.recommendations.length) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">Немає рекомендацій для цього URL</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Немає рекомендацій для цього URL</td></tr>';
         return;
     }
     tbody.innerHTML = detailData.recommendations
         .map(
-            (r) => `
+            (r) => {
+                const volStr = r.volume != null ? Number(r.volume).toLocaleString("uk-UA") : "—";
+                return `
         <tr>
             <td><strong>${escapeHtml(r.recommended_anchor)}</strong></td>
             <td><span class="badge badge-${r.anchor_type}">${formatAnchorType(r.anchor_type)}</span></td>
             <td>${r.target_keyword || "—"}</td>
-            <td>${r.comment || ""}</td>
+            <td>${volStr}</td>
+            <td>${r.rationale || r.comment || ""}</td>
         </tr>
-    `
+    `;
+            }
         )
         .join("");
 }
@@ -292,9 +388,16 @@ function sortData(data) {
 }
 
 // --- Helpers ---
+function ensureUrlProtocol(url) {
+    if (!url || typeof url !== "string") return "#";
+    const s = url.trim();
+    if (s.startsWith("http://") || s.startsWith("https://")) return s;
+    return "https://" + s;
+}
+
 function shortenUrl(url) {
     try {
-        const u = new URL(url);
+        const u = new URL(ensureUrlProtocol(url));
         const path = u.pathname === "/" ? "" : u.pathname;
         return u.hostname + path;
     } catch {

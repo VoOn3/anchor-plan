@@ -1,10 +1,26 @@
 from flask import Flask, request, jsonify, send_file, send_from_directory, abort
 from flask_cors import CORS
 import os
+
+from dotenv import load_dotenv
+# Завантажити .env з кореня проекту (батьківська папка backend)
+_env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+load_dotenv(_env_path)
+
 import uuid
+import glob
+from datetime import datetime
 from services.parser import (
-    parse_positions_file, parse_ahrefs_file, parse_collaborator_file,
-    get_collaborator_columns, parse_anchor_plan_file,
+    parse_positions_file, parse_ahrefs_file, parse_ahrefs_backlinks, parse_collaborator_backlinks,
+    parse_collaborator_file, get_collaborator_columns, parse_anchor_plan_file, url_to_canonical,
+)
+from services.google_sheets import (
+    fetch_sheets_list,
+    get_preview_data,
+    parse_positions_from_rows,
+    fetch_sheet_data,
+    find_header_row,
+    suggest_column_mapping,
 )
 from services.analyzer import analyze_pages, classify_anchor, calculate_recommended_links, calculate_priority
 from services.planner import generate_anchor_plan, calculate_current_distribution
@@ -102,6 +118,49 @@ def api_delete_project(project_id):
     return jsonify({"ok": True})
 
 
+# ========== Google Sheets ==========
+
+@app.route("/api/google-sheets/sheets", methods=["GET"])
+def api_google_sheets_list():
+    """Отримує список листів Google Таблиці."""
+    url = request.args.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "Параметр url обов'язковий"}), 400
+    try:
+        sheets = fetch_sheets_list(url)
+        return jsonify({"sheets": sheets})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Помилка: {str(e)}"}), 500
+
+
+@app.route("/api/google-sheets/preview", methods=["GET"])
+def api_google_sheets_preview():
+    """Попередній перегляд: визначає рядок заголовків, пропонує мапінг колонок."""
+    url = request.args.get("url", "").strip()
+    sheet_id = request.args.get("sheet_id")
+    sheet_title = request.args.get("sheet_title", "").strip()
+    if not url:
+        return jsonify({"error": "Параметр url обов'язковий"}), 400
+    if sheet_id is None or sheet_id == "":
+        return jsonify({"error": "Параметр sheet_id обов'язковий"}), 400
+    try:
+        # sheet_title з frontend дозволяє уникнути lookup за id
+        if sheet_title:
+            sheet_ref = sheet_title
+        elif isinstance(sheet_id, str) and sheet_id.isdigit():
+            sheet_ref = int(sheet_id)
+        else:
+            sheet_ref = sheet_id
+        data = get_preview_data(url, sheet_ref)
+        return jsonify(data)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Помилка: {str(e)}"}), 500
+
+
 # ========== Upload Validation (background) ==========
 
 @app.route("/api/projects/<project_id>/validate-upload", methods=["POST"])
@@ -111,7 +170,7 @@ def validate_upload(project_id):
     if not project:
         return jsonify({"error": "Проект не знайдено"}), 404
 
-    result = {"positions": {"ok": False}, "ahrefs": {"ok": False}}
+    result = {"positions": {"ok": False}, "ahrefs": {"ok": False}, "collaborator": {"ok": False}}
 
     session_dir = os.path.join(UPLOAD_DIR, project_id)
     os.makedirs(session_dir, exist_ok=True)
@@ -133,12 +192,24 @@ def validate_upload(project_id):
         ahrefs_path = os.path.join(session_dir, "validate_ahrefs" + os.path.splitext(ahrefs_file.filename)[1])
         try:
             ahrefs_file.save(ahrefs_path)
-            data = parse_ahrefs_file(ahrefs_path)
+            data = parse_ahrefs_backlinks(ahrefs_path)
             result["ahrefs"] = {"ok": True, "rows": len(data)}
         except ValueError as e:
             result["ahrefs"] = {"ok": False, "error": str(e)}
         except Exception as e:
             result["ahrefs"] = {"ok": False, "error": f"Помилка читання файлу: {str(e)}"}
+
+    collaborator_file = request.files.get("collaborator")
+    if collaborator_file and collaborator_file.filename:
+        collab_path = os.path.join(session_dir, "validate_collaborator" + os.path.splitext(collaborator_file.filename)[1])
+        try:
+            collaborator_file.save(collab_path)
+            data = parse_collaborator_backlinks(collab_path)
+            result["collaborator"] = {"ok": True, "rows": len(data)}
+        except ValueError as e:
+            result["collaborator"] = {"ok": False, "error": str(e)}
+        except Exception as e:
+            result["collaborator"] = {"ok": False, "error": f"Помилка читання файлу: {str(e)}"}
 
     return jsonify(result)
 
@@ -153,30 +224,135 @@ def upload_files(project_id):
 
     positions_file = request.files.get("positions")
     ahrefs_file = request.files.get("ahrefs")
+    collaborator_file = request.files.get("collaborator")
     brand_name = request.form.get("brand_name", project.get("brand_name", ""))
 
-    if not positions_file or not ahrefs_file:
-        return jsonify({"error": "Потрібно завантажити обидва файли"}), 400
+    # Google Sheets або JSON body (positions_source=google_sheets)
+    json_data = request.get_json(silent=True) or {}
+    form_data = request.form or {}
+    positions_source = json_data.get("positions_source") or form_data.get("positions_source")
 
     session_dir = os.path.join(UPLOAD_DIR, project_id)
     os.makedirs(session_dir, exist_ok=True)
 
-    pos_path = os.path.join(session_dir, "positions" + os.path.splitext(positions_file.filename)[1])
-    ahrefs_path = os.path.join(session_dir, "ahrefs" + os.path.splitext(ahrefs_file.filename)[1])
+    pos_matches = glob.glob(os.path.join(session_dir, "positions.*"))
+    ahrefs_matches = glob.glob(os.path.join(session_dir, "ahrefs.*"))
+    collab_matches = glob.glob(os.path.join(session_dir, "collaborator.*"))
+    has_backlinks = bool(ahrefs_matches or collab_matches)
+    has_positions = bool(pos_matches) or positions_source == "google_sheets"
 
-    positions_file.save(pos_path)
-    ahrefs_file.save(ahrefs_path)
+    if not positions_file and not ahrefs_file and not collaborator_file and positions_source != "google_sheets":
+        if not has_positions or not has_backlinks:
+            return jsonify({"error": "Оберіть хоча б один файл для завантаження"}), 400
 
-    try:
-        positions_data = parse_positions_file(pos_path)
-        ahrefs_data = parse_ahrefs_file(ahrefs_path)
-    except Exception as e:
-        return jsonify({"error": f"Помилка парсингу файлів: {str(e)}"}), 400
+    if positions_source == "google_sheets":
+        brand_name = json_data.get("brand_name") or form_data.get("brand_name") or brand_name
+        if not has_backlinks:
+            return jsonify({"error": "Потрібна хоча б одна вигрузка беклінків (Ahrefs або Collaborator). Завантажте їх спочатку."}), 400
+
+    now_iso = datetime.utcnow().isoformat()
+    update_upload_dates = {}
+
+    positions_data = None
+    ahrefs_data = []
+    collaborator_data = []
+
+    if positions_source == "google_sheets":
+        gs_url = (json_data.get("positions_google_url") or form_data.get("positions_google_url") or "").strip()
+        gs_sheet_id = json_data.get("positions_sheet_id") or form_data.get("positions_sheet_id")
+        gs_sheet_title = (json_data.get("positions_sheet_title") or form_data.get("positions_sheet_title") or "").strip()
+        col_map_raw = json_data.get("column_mapping") or form_data.get("column_mapping")
+        if isinstance(col_map_raw, str):
+            try:
+                import json
+                column_mapping = json.loads(col_map_raw)
+            except Exception:
+                column_mapping = {}
+        else:
+            column_mapping = col_map_raw or {}
+        if not gs_url or gs_sheet_id is None:
+            return jsonify({"error": "Для Google Sheets потрібні positions_google_url та positions_sheet_id"}), 400
+        try:
+            gs_sheet_ref = gs_sheet_title if gs_sheet_title else gs_sheet_id
+            rows = fetch_sheet_data(gs_url, gs_sheet_ref)
+            header_row = column_mapping.get("header_row_index")
+            if header_row is None:
+                header_row = find_header_row(rows)
+            if header_row < 0:
+                return jsonify({"error": "Не вдалося визначити рядок заголовків"}), 400
+            column_mapping["header_row_index"] = header_row
+            positions_data = parse_positions_from_rows(rows, header_row, column_mapping)
+            update_upload_dates["positions_uploaded_at"] = now_iso
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"error": f"Помилка Google Sheets: {str(e)}"}), 400
+    elif positions_file and positions_file.filename:
+        pos_path = os.path.join(session_dir, "positions" + os.path.splitext(positions_file.filename)[1])
+        positions_file.save(pos_path)
+        try:
+            positions_data = parse_positions_file(pos_path)
+            update_upload_dates["positions_uploaded_at"] = now_iso
+        except Exception as e:
+            return jsonify({"error": f"Помилка парсингу реєстру позицій: {str(e)}"}), 400
+
+    if ahrefs_file and ahrefs_file.filename:
+        ahrefs_path = os.path.join(session_dir, "ahrefs" + os.path.splitext(ahrefs_file.filename)[1])
+        ahrefs_file.save(ahrefs_path)
+        try:
+            ahrefs_data = parse_ahrefs_backlinks(ahrefs_path)
+            update_upload_dates["ahrefs_uploaded_at"] = now_iso
+        except Exception as e:
+            return jsonify({"error": f"Помилка парсингу Ahrefs: {str(e)}"}), 400
+
+    if collaborator_file and collaborator_file.filename:
+        collab_path = os.path.join(session_dir, "collaborator" + os.path.splitext(collaborator_file.filename)[1])
+        collaborator_file.save(collab_path)
+        try:
+            collaborator_data = parse_collaborator_backlinks(collab_path)
+            update_upload_dates["collaborator_uploaded_at"] = now_iso
+        except Exception as e:
+            return jsonify({"error": f"Помилка парсингу Collaborator: {str(e)}"}), 400
+
+    pos_matches = glob.glob(os.path.join(session_dir, "positions.*"))
+    ahrefs_matches = glob.glob(os.path.join(session_dir, "ahrefs.*"))
+    collab_matches = glob.glob(os.path.join(session_dir, "collaborator.*"))
+    existing_positions_path = pos_matches[0] if pos_matches else None
+    existing_ahrefs_path = ahrefs_matches[0] if ahrefs_matches else None
+    existing_collab_path = collab_matches[0] if collab_matches else None
+
+    if positions_data is None:
+        if existing_positions_path:
+            try:
+                positions_data = parse_positions_file(existing_positions_path)
+            except Exception:
+                return jsonify({"error": "Реєстр позицій не завантажено. Завантажте файл позицій."}), 400
+        else:
+            return jsonify({"error": "Для першого завантаження потрібен реєстр позицій."}), 400
+
+    if not ahrefs_data and existing_ahrefs_path:
+        try:
+            ahrefs_data = parse_ahrefs_backlinks(existing_ahrefs_path)
+        except Exception:
+            try:
+                from services.parser import parse_backlinks_auto
+                ahrefs_data = parse_backlinks_auto(existing_ahrefs_path)
+            except Exception:
+                pass
+    if not collaborator_data and existing_collab_path:
+        try:
+            collaborator_data = parse_collaborator_backlinks(existing_collab_path)
+        except Exception:
+            pass
+
+    backlinks_data = ahrefs_data + collaborator_data
+    if not backlinks_data:
+        return jsonify({"error": "Потрібна хоча б одна вигрузка беклінків (Ahrefs або Collaborator)."}), 400
 
     settings = project.get("settings") or get_default_settings()
     settings["brand_name"] = brand_name
 
-    analysis = analyze_pages(positions_data, ahrefs_data, settings.get("priority_ranges"))
+    analysis = analyze_pages(positions_data, backlinks_data, settings.get("priority_ranges"))
 
     auto_selected = [
         p["url"] for p in analysis
@@ -186,10 +362,15 @@ def upload_files(project_id):
     custom_links = project.get("custom_links", {})
     plan = generate_anchor_plan(analysis, settings, selected_urls=auto_selected, custom_links=custom_links)
 
-    update_project(
-        project_id, settings=settings, analysis=analysis,
-        plan=plan, brand_name=brand_name, selected_urls=auto_selected,
-    )
+    update_kwargs = {
+        "settings": settings,
+        "analysis": analysis,
+        "plan": plan,
+        "brand_name": brand_name,
+        "selected_urls": auto_selected,
+    }
+    update_kwargs.update(update_upload_dates)
+    update_project(project_id, **update_kwargs)
 
     return jsonify({
         "project_id": project_id,
@@ -198,6 +379,9 @@ def upload_files(project_id):
         "settings": settings,
         "selected_urls": auto_selected,
         "custom_links": custom_links,
+        "positions_uploaded_at": update_upload_dates.get("positions_uploaded_at") or project.get("positions_uploaded_at"),
+        "ahrefs_uploaded_at": update_upload_dates.get("ahrefs_uploaded_at") or project.get("ahrefs_uploaded_at"),
+        "collaborator_uploaded_at": update_upload_dates.get("collaborator_uploaded_at") or project.get("collaborator_uploaded_at"),
     })
 
 
@@ -604,15 +788,14 @@ def get_available_anchors(project_id):
     if not project:
         return jsonify({"error": "Проект не знайдено"}), 404
 
-    from services.parser import normalize_url
     url = request.args.get("url", "")
-    url_norm = normalize_url(url)
-    if not url_norm:
+    url_canonical = url_to_canonical(url)
+    if not url_canonical:
         return jsonify({"anchors": []})
 
     anchors = set()
     for page in project.get("analysis", []):
-        if normalize_url(page.get("url", "")) != url_norm:
+        if url_to_canonical(page.get("url", "")) != url_canonical:
             continue
         for kw in page.get("keywords", []):
             k = (kw.get("keyword") or "").strip()
@@ -648,16 +831,15 @@ def edit_plan_row(project_id):
         plan[row_index]["is_manual"] = True
         positions_set = _build_positions_keywords_set(project_id, project)
         if positions_set:
-            from services.parser import normalize_url
             url = plan[row_index].get("url", "")
-            url_norm = normalize_url(url)
-            key = (url_norm, new_anchor.strip().lower())
+            url_canonical = url_to_canonical(url)
+            key = (url_canonical, new_anchor.strip().lower())
             plan[row_index]["anchor_in_positions"] = key in positions_set
 
             if plan[row_index]["anchor_in_positions"]:
                 page = next(
                     (p for p in project.get("analysis", [])
-                    if normalize_url(p.get("url", "")) == url_norm
+                    if url_to_canonical(p.get("url", "")) == url_canonical
                 ), None)
                 if page:
                     anchor_lower = new_anchor.strip().lower()
@@ -706,15 +888,13 @@ def delete_plan_rows(project_id):
 
 
 def _build_positions_keywords_set(project_id: str, project: dict) -> set[tuple[str, str]]:
-    """Побудова множини (url, keyword) з реєстру позицій для валідації анкорів."""
-    from services.parser import normalize_url
-
+    """Побудова множини (canonical_url, keyword) з реєстру позицій для валідації анкорів."""
     result = set()
     analysis = project.get("analysis", [])
 
     if analysis:
         for page in analysis:
-            url = normalize_url(page.get("url", ""))
+            url = url_to_canonical(page.get("url", ""))
             for kw in page.get("keywords", []):
                 k = (kw.get("keyword") or "").strip()
                 if k:
@@ -728,7 +908,7 @@ def _build_positions_keywords_set(project_id: str, project: dict) -> set[tuple[s
             try:
                 data = parse_positions_file(pos_path)
                 for item in data:
-                    url = item.get("url", "")
+                    url = url_to_canonical(item.get("url", ""))
                     kw = (item.get("keyword") or "").strip()
                     if url and kw:
                         result.add((url, kw.lower()))
@@ -766,20 +946,20 @@ def upload_anchor_plan(project_id):
     positions_set = _build_positions_keywords_set(project_id, project)
     mode = request.form.get("mode", "replace")
 
-    from services.parser import normalize_url
     from services.planner import PURCHASE_ORDER
 
     new_plan_rows = []
     for row in rows:
         url = row["url"]
+        url_canonical = url_to_canonical(url)
         anchor = row["anchor"]
         anchor_lower = anchor.strip().lower()
-        key = (url, anchor_lower)
+        key = (url_canonical, anchor_lower)
         anchor_in_positions = key in positions_set if positions_set else False
 
         page = next(
             (p for p in project.get("analysis", [])
-            if normalize_url(p.get("url", "")) == url
+            if url_to_canonical(p.get("url", "")) == url_canonical
         ), None)
         recommendation = page.get("recommendation", "not_recommended") if page else "not_recommended"
         purchase_order = PURCHASE_ORDER.get(recommendation, 6)
@@ -798,7 +978,7 @@ def upload_anchor_plan(project_id):
                 dynamics = matching_kw.get("dynamics_label", "n/a")
 
         new_plan_rows.append({
-            "url": url,
+            "url": url_canonical,
             "priority": page["priority"] if page else "medium",
             "priority_score": page["priority_score"] if page else 0,
             "recommendation": recommendation,
@@ -836,11 +1016,23 @@ def add_plan_row(project_id):
     anchor_type = data.get("anchor_type", "partial_match")
     target_keyword = data.get("target_keyword", "").strip()
     rationale = data.get("rationale", "").strip()
+    volume = data.get("volume")
 
     if not url or not anchor:
         return jsonify({"error": "URL та анкор обов'язкові"}), 400
 
-    page = next((p for p in project["analysis"] if p["url"] == url), None)
+    url_canonical = url_to_canonical(url)
+    page = next((p for p in project["analysis"] if p["url"] == url_canonical), None)
+
+    # Перевірка дублікату
+    plan = project["plan"]
+    anchor_lower = anchor.strip().lower()
+    if any(
+        url_to_canonical(p.get("url", "")) == url_canonical
+        and (p.get("recommended_anchor") or "").strip().lower() == anchor_lower
+        for p in plan
+    ):
+        return jsonify({"error": "Такий анкор вже є в плані для цього URL", "plan": plan}), 409
 
     best_kw = page.get("best_keyword") if page else None
     recommendation = page.get("recommendation", "not_recommended") if page else "not_recommended"
@@ -849,12 +1041,11 @@ def add_plan_row(project_id):
     purchase_order = PURCHASE_ORDER.get(recommendation, 6)
 
     positions_set = _build_positions_keywords_set(project_id, project)
-    from services.parser import normalize_url
-    key = (normalize_url(url), anchor.strip().lower())
+    key = (url_canonical, anchor.strip().lower())
     anchor_in_positions = key in positions_set if positions_set else False
 
     new_row = {
-        "url": url,
+        "url": url_canonical,
         "priority": page["priority"] if page else "medium",
         "priority_score": page["priority_score"] if page else 0,
         "recommendation": recommendation,
@@ -868,6 +1059,8 @@ def add_plan_row(project_id):
         "is_manual": True,
         "anchor_in_positions": anchor_in_positions,
     }
+    if volume is not None:
+        new_row["volume"] = volume
 
     plan = project["plan"]
     plan.append(new_row)
@@ -887,13 +1080,14 @@ def url_detail(project_id):
 
     data = request.json
     target_url = data.get("url")
+    target_canonical = url_to_canonical(target_url) if target_url else ""
 
     analysis = project["analysis"]
     plan = project["plan"]
     settings = project["settings"]
     brand_name = settings.get("brand_name", "")
 
-    page = next((p for p in analysis if p["url"] == target_url), None)
+    page = next((p for p in analysis if p["url"] == target_canonical), None)
     if not page:
         return jsonify({"error": "URL не знайдено"}), 404
 
@@ -909,6 +1103,7 @@ def url_detail(project_id):
             "dr": a.get("dr"),
             "traffic": a.get("traffic"),
             "type": anchor_type,
+            "source": a.get("source"),
         })
 
     grouped = {}
@@ -923,6 +1118,8 @@ def url_detail(project_id):
                 "nofollow": 0,
                 "dr_values": [],
                 "donors": [],
+                "sources": set(),
+                "volume": 0,
             }
         grouped[key]["count"] += 1
         if "dofollow" in a["link_type"]:
@@ -933,10 +1130,24 @@ def url_detail(project_id):
             grouped[key]["dr_values"].append(a["dr"])
         if a["referring_url"]:
             grouped[key]["donors"].append(a["referring_url"])
+        if a.get("source"):
+            grouped[key]["sources"].add(a["source"])
+        # Якщо анкор збігається з ключовим словом з реєстру позицій — додати (P) та частоту
+        anchor_lower = a["anchor"].lower().strip()
+        for kw in page.get("keywords", []):
+            kw_lower = (kw.get("keyword") or "").strip().lower()
+            if not kw_lower:
+                continue
+            if anchor_lower == kw_lower or kw_lower in anchor_lower or anchor_lower in kw_lower:
+                grouped[key]["sources"].add("positions")
+                vol = kw.get("volume")
+                if vol is not None:
+                    grouped[key]["volume"] = grouped[key].get("volume", 0) + vol
 
     anchors_grouped = []
     for g in sorted(grouped.values(), key=lambda x: x["count"], reverse=True):
         avg_dr = round(sum(g["dr_values"]) / len(g["dr_values"]), 1) if g["dr_values"] else None
+        vol = g.get("volume") or 0
         anchors_grouped.append({
             "anchor": g["anchor"],
             "count": g["count"],
@@ -945,6 +1156,8 @@ def url_detail(project_id):
             "nofollow": g["nofollow"],
             "avg_dr": avg_dr,
             "donors": g["donors"],
+            "sources": sorted(g["sources"]) if g.get("sources") else [],
+            "volume": vol if vol else None,
         })
 
     current_dist = calculate_current_distribution(
@@ -969,10 +1182,10 @@ def url_detail(project_id):
             "status": status,
         })
 
-    url_plan = [p for p in plan if p["url"] == target_url]
+    url_plan = [p for p in plan if url_to_canonical(p.get("url", "")) == target_canonical]
 
     return jsonify({
-        "url": target_url,
+        "url": target_canonical or target_url,
         "priority": page["priority"],
         "priority_score": page["priority_score"],
         "total_backlinks": page["total_backlinks"],

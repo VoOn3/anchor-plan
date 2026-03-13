@@ -6,6 +6,13 @@ from datetime import datetime
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "anchor_plan.db")
 
 
+def _row_get(row, key, default=None):
+    try:
+        return row[key] if key in row.keys() else default
+    except (KeyError, TypeError):
+        return default
+
+
 def _parse_json_safe(row, key, default):
     try:
         val = row[key]
@@ -40,7 +47,11 @@ def init_db():
             collaborator_sites TEXT DEFAULT '[]'
         );
     """)
-    for col, default in [("selected_urls", "'[]'"), ("collaborator_sites", "'[]'"), ("custom_links", "'{}'"), ("settings_history", "'[]'")]:
+    for col, default in [
+        ("selected_urls", "'[]'"), ("collaborator_sites", "'[]'"), ("custom_links", "'{}'"),
+        ("settings_history", "'[]'"), ("positions_uploaded_at", "NULL"), ("ahrefs_uploaded_at", "NULL"),
+        ("collaborator_uploaded_at", "NULL"),
+    ]:
         try:
             conn.execute(f"ALTER TABLE projects ADD COLUMN {col} TEXT DEFAULT {default}")
             conn.commit()
@@ -87,6 +98,13 @@ def init_db():
     conn.commit()
     conn.close()
 
+    # Міграція канонічних URL для існуючих проектів
+    try:
+        from migrate_canonical import run_migration
+        run_migration()
+    except Exception:
+        pass
+
 
 def list_projects():
     conn = get_db()
@@ -127,6 +145,9 @@ def get_project(project_id):
         "collaborator_sites": json.loads(row["collaborator_sites"] or "[]"),
         "custom_links": json.loads(row["custom_links"] or "{}"),
         "settings_history": _parse_json_safe(row, "settings_history", []),
+        "positions_uploaded_at": _row_get(row, "positions_uploaded_at"),
+        "ahrefs_uploaded_at": _row_get(row, "ahrefs_uploaded_at"),
+        "collaborator_uploaded_at": _row_get(row, "collaborator_uploaded_at"),
     }
 
 
@@ -160,7 +181,7 @@ def update_project(project_id, **kwargs):
         if key in ("settings", "analysis", "plan", "selected_urls", "collaborator_sites", "custom_links"):
             sets.append(f"{key} = ?")
             vals.append(json.dumps(val, ensure_ascii=False))
-        elif key in ("name", "brand_name", "domain"):
+        elif key in ("name", "brand_name", "domain", "positions_uploaded_at", "ahrefs_uploaded_at", "collaborator_uploaded_at"):
             sets.append(f"{key} = ?")
             vals.append(val)
     sets.append("updated_at = ?")

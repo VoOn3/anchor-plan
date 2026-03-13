@@ -1,19 +1,50 @@
 import re
 from collections import defaultdict
 
+from services.parser import url_to_canonical
+
 
 def analyze_pages(positions_data: list[dict], ahrefs_data: list[dict], priority_ranges: dict | None = None) -> list[dict]:
-    page_keywords = defaultdict(list)
+    # Групуємо по канонічному URL (www/non-www, http/https — одна сторінка)
+    page_keywords_raw = defaultdict(list)
     for item in positions_data:
-        page_keywords[item["url"]].append({
+        canonical = url_to_canonical(item["url"])
+        kw_data = {
             "keyword": item["keyword"],
-            "positions": item["positions"],
-        })
+            "positions": dict(item["positions"]),
+            "source": "positions",
+        }
+        if "volume" in item and item["volume"] is not None:
+            kw_data["volume"] = item["volume"]
+        page_keywords_raw[canonical].append(kw_data)
+
+    # Мерджимо ключові слова: якщо той самий ключ з різних URL-варіантів — беремо кращу позицію на кожну дату
+    page_keywords = {}
+    for canonical, kw_list in page_keywords_raw.items():
+        merged = {}
+        for kw in kw_list:
+            key = kw["keyword"].strip().lower()
+            if key not in merged:
+                merged[key] = {
+                    "keyword": kw["keyword"],
+                    "positions": dict(kw["positions"]),
+                    "source": "positions",
+                    "volume": kw.get("volume"),
+                }
+            else:
+                for date, pos in kw["positions"].items():
+                    existing = merged[key]["positions"].get(date)
+                    if existing is None or (pos is not None and pos < existing):
+                        merged[key]["positions"][date] = pos
+                if kw.get("volume") is not None and (merged[key]["volume"] is None or kw["volume"] > merged[key]["volume"]):
+                    merged[key]["volume"] = kw["volume"]
+        page_keywords[canonical] = list(merged.values())
 
     page_anchors = defaultdict(list)
     for item in ahrefs_data:
         if item["target_url"]:
-            page_anchors[item["target_url"]].append(item)
+            canonical = url_to_canonical(item["target_url"])
+            page_anchors[canonical].append(item)
 
     all_urls = set(page_keywords.keys()) | set(page_anchors.keys())
 
@@ -32,7 +63,7 @@ def analyze_pages(positions_data: list[dict], ahrefs_data: list[dict], priority_
 
             dynamics = calculate_dynamics(current_pos, prev_pos, first_pos)
 
-            keyword_analysis.append({
+            kw_entry = {
                 "keyword": kw["keyword"],
                 "current_position": current_pos,
                 "previous_position": prev_pos,
@@ -40,17 +71,26 @@ def analyze_pages(positions_data: list[dict], ahrefs_data: list[dict], priority_
                 "dynamics": dynamics,
                 "dynamics_label": get_dynamics_label(dynamics),
                 "positions_history": positions,
-            })
+            }
+            if "volume" in kw and kw["volume"] is not None:
+                kw_entry["volume"] = kw["volume"]
+            keyword_analysis.append(kw_entry)
 
-        anchor_profile = build_anchor_profile(anchors)
+        keyword_strings = [kw["keyword"] for kw in keywords]
+        anchor_profile = build_anchor_profile(anchors, keyword_strings)
         best_keyword = get_best_keyword(keyword_analysis)
         priority = calculate_priority(keyword_analysis, priority_ranges)
         recommendation = calculate_url_recommendation(keyword_analysis)
+
+        total_volume = sum(kw.get("volume", 0) or 0 for kw in keyword_analysis)
+        best_volume = best_keyword.get("volume") if best_keyword else None
 
         results.append({
             "url": url,
             "keywords": keyword_analysis,
             "best_keyword": best_keyword,
+            "total_volume": total_volume if total_volume else None,
+            "best_keyword_volume": best_volume,
             "priority": priority["level"],
             "priority_score": priority["score"],
             "recommendation": recommendation["label"],
@@ -95,20 +135,44 @@ def get_dynamics_label(dynamics: float) -> str:
         return "stable"
 
 
-def build_anchor_profile(anchors: list[dict]) -> dict:
+def _anchor_matches_keyword(anchor_lower: str, keyword_strings: list[str]) -> bool:
+    """Чи збігається анкор з будь-яким ключовим словом з реєстру позицій."""
+    for kw in keyword_strings:
+        kw_lower = (kw or "").strip().lower()
+        if not kw_lower:
+            continue
+        if anchor_lower == kw_lower or kw_lower in anchor_lower or anchor_lower in kw_lower:
+            return True
+    return False
+
+
+def build_anchor_profile(anchors: list[dict], keyword_strings: list[str] | None = None) -> dict:
     total = len(anchors) or 1
+    keyword_strings = keyword_strings or []
 
     unique_anchors = {}
     for a in anchors:
         text = a["anchor"].lower().strip()
         if text not in unique_anchors:
-            unique_anchors[text] = {"text": a["anchor"], "count": 0, "type": "unknown"}
+            unique_anchors[text] = {"text": a["anchor"], "count": 0, "type": "unknown", "sources": set()}
         unique_anchors[text]["count"] += 1
+        src = a.get("source")
+        if src:
+            unique_anchors[text]["sources"].add(src)
+        if keyword_strings and _anchor_matches_keyword(text, keyword_strings):
+            unique_anchors[text]["sources"].add("positions")
+
+    anchors_list = []
+    for v in unique_anchors.values():
+        entry = {"text": v["text"], "count": v["count"], "type": v["type"]}
+        if v.get("sources"):
+            entry["sources"] = sorted(v["sources"])
+        anchors_list.append(entry)
 
     return {
         "total_anchors": len(anchors),
         "unique_anchors": len(unique_anchors),
-        "anchors_list": sorted(unique_anchors.values(), key=lambda x: x["count"], reverse=True),
+        "anchors_list": sorted(anchors_list, key=lambda x: x["count"], reverse=True),
         "distribution": {},
     }
 

@@ -1,4 +1,5 @@
 from services.analyzer import classify_anchor, parse_brand_names
+from services.parser import url_to_canonical
 
 PURCHASE_ORDER = {
     "priority": 1,
@@ -20,9 +21,10 @@ def generate_anchor_plan(analysis: list[dict], settings: dict,
     custom_links = custom_links or {}
 
     pages_for_plan = []
+    selected_canonical = {url_to_canonical(u) for u in (selected_urls or [])} if selected_urls else None
     for page in analysis:
         url = page["url"]
-        if selected_urls is not None and url not in selected_urls:
+        if selected_canonical is not None and url not in selected_canonical:
             continue
         pages_for_plan.append(page)
 
@@ -34,8 +36,9 @@ def generate_anchor_plan(analysis: list[dict], settings: dict,
             links_allocation[p["url"]] = p.get("recommended_links", links_per_page)
 
     for url, count in custom_links.items():
-        if url in links_allocation:
-            links_allocation[url] = max(1, int(count))
+        canonical = url_to_canonical(url)
+        if canonical in links_allocation:
+            links_allocation[canonical] = max(1, int(count))
 
     plan = []
 
@@ -75,7 +78,7 @@ def generate_anchor_plan(analysis: list[dict], settings: dict,
         purchase_order = PURCHASE_ORDER.get(recommendation, 6)
 
         for rec in anchors:
-            plan.append({
+            item = {
                 "url": url,
                 "priority": page["priority"],
                 "priority_score": page["priority_score"],
@@ -88,7 +91,13 @@ def generate_anchor_plan(analysis: list[dict], settings: dict,
                 "dynamics": best_kw["dynamics_label"] if best_kw else "n/a",
                 "rationale": rec.get("rationale", ""),
                 "is_manual": False,
-            })
+            }
+            vol = rec.get("volume")
+            if vol is None and best_kw and best_kw.get("volume") is not None:
+                vol = best_kw["volume"]
+            if vol is not None:
+                item["volume"] = vol
+            plan.append(item)
 
     plan.sort(key=lambda x: (x["purchase_order"], -x["priority_score"]))
     return plan
@@ -297,12 +306,15 @@ def _create_anchor(
         used_keywords.add(kw["keyword"])
         pos = kw.get("current_position")
         dyn = kw.get("dynamics_label", "stable")
-        return {
+        rec = {
             "anchor": anchor_text,
             "type": "exact_match",
             "target_keyword": kw["keyword"],
             "rationale": f"Exact «{kw['keyword']}» (поз. {pos}, {dyn})",
         }
+        if kw.get("volume") is not None:
+            rec["volume"] = kw["volume"]
+        return rec
 
     if anchor_type == "partial_match":
         kw = _pick_keyword(ranked_kw, used_keywords, prefer_best=False, best_keyword=best_keyword)
@@ -314,12 +326,15 @@ def _create_anchor(
         used_keywords.add(kw["keyword"])
         pos = kw.get("current_position")
         dyn = kw.get("dynamics_label", "stable")
-        return {
+        rec = {
             "anchor": anchor_text,
             "type": "partial_match",
             "target_keyword": kw["keyword"],
             "rationale": f"Ключ «{kw['keyword']}» (поз. {pos}, {dyn})",
         }
+        if kw.get("volume") is not None:
+            rec["volume"] = kw["volume"]
+        return rec
 
     if anchor_type == "branded":
         brand_names = parse_brand_names(brand_name)

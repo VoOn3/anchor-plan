@@ -63,7 +63,14 @@ const SECTION_HELP_CONTENT = {
         <h4>Завантаження даних</h4>
         <p>На цій сторінці ви завантажуєте два типи файлів:</p>
         <ul>
-            <li><strong>Реєстр позицій</strong> — CSV або XLSX з колонками URL, Keyword та колонками дат (позиція на кожну дату).</li>
+            <li><strong>Реєстр позицій</strong> — CSV/XLSX файл або посилання на Google Таблицю. Підтримується:
+                <ul>
+                    <li>Pivot: URL, Keyword, колонки дат (позиція на кожну дату)</li>
+                    <li>SE Ranking: Keyword, URL, SERP Date, Rank (long-формат)</li>
+                    <li>Avrora: Ключевое слово, URL, Частотность, Динамика, колонки дат</li>
+                    <li>Google Таблиця: автоматичне визначення рядка заголовків (1–30), мапінг колонок</li>
+                </ul>
+            </li>
             <li><strong>Вигрузка беклінків</strong> — Ahrefs (колонка Anchor, Target URL) або Collaborator (лист «Розподіл по операціях»).</li>
         </ul>
         <p>Після успішного завантаження стане доступним аналіз позицій та побудова анкор-плану.</p>
@@ -76,6 +83,7 @@ const SECTION_HELP_CONTENT = {
         <ul>
             <li><strong>URL</strong> — сторінка сайту</li>
             <li><strong>Ключ</strong> — найкраще ключове слово для сторінки</li>
+            <li><strong>Частота</strong> — search volume з файлу позицій (опційно)</li>
             <li><strong>Позиція</strong> — поточна позиція в пошуку</li>
             <li><strong>Динаміка</strong> — зміна позиції (growth / stable / decline)</li>
             <li><strong>Рекомендація</strong> — чи варто включати сторінку в план</li>
@@ -186,6 +194,20 @@ function escapeTitle(s) {
     return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/** Бейджі джерел: (P)=positions, (a)=ahrefs, (K)=collaborator */
+function renderSourceBadges(sources) {
+    if (!sources || !Array.isArray(sources) || sources.length === 0) return "";
+    const labels = { positions: "P", ahrefs: "a", collaborator: "K" };
+    return sources.map((s) => `<span class="source-badge badge-${s}" title="${s === 'positions' ? 'Реєстр позицій' : s === 'ahrefs' ? 'Ahrefs' : 'Collaborator'}">${labels[s] || s}</span>`).join("");
+}
+
+function formatVolume(v) {
+    if (v == null || v === undefined) return "—";
+    const n = Number(v);
+    if (isNaN(n)) return "—";
+    return n.toLocaleString("uk-UA");
+}
+
 loadProject();
 
 async function loadProject() {
@@ -205,6 +227,9 @@ async function loadProject() {
         state.settingsHistory = data.settings_history || [];
         state.selectedUrls = new Set(data.selected_urls || []);
         state.customLinks = data.custom_links || {};
+        state.positionsUploadedAt = data.positions_uploaded_at || null;
+        state.ahrefsUploadedAt = data.ahrefs_uploaded_at || null;
+        state.collaboratorUploadedAt = data.collaborator_uploaded_at || null;
 
         document.title = `${data.name} — Anchor Plan`;
         const logoSpan = document.querySelector(".sidebar-logo span");
@@ -213,6 +238,8 @@ async function loadProject() {
         if (data.brand_name) {
             document.getElementById("brand-name").value = data.brand_name;
         }
+
+        renderUploadStatus();
 
         if (state.analysis.length > 0) {
             enableNav();
@@ -269,8 +296,71 @@ function enableNav() {
 }
 
 // --- File Upload ---
-let uploadValidationState = { positions: null, ahrefs: null };
+let uploadValidationState = { positions: null, ahrefs: null, collaborator: null };
 let validateUploadTimeout = null;
+
+// --- Google Sheets ---
+let gsState = {
+    mode: "file",
+    url: "",
+    sheets: [],
+    sheetId: null,
+    sheetTitle: "",
+    preview: null,
+    columnMapping: null,
+};
+
+function escapeHtml(text) {
+    if (text == null) return "";
+    const s = String(text);
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function formatUploadDate(isoStr) {
+    if (!isoStr) return "";
+    try {
+        const d = new Date(isoStr);
+        return d.toLocaleDateString("uk-UA", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    } catch {
+        return isoStr;
+    }
+}
+
+function renderUploadStatus() {
+    const posEl = document.getElementById("positions-uploaded-at");
+    const ahrefsEl = document.getElementById("ahrefs-uploaded-at");
+    const collabEl = document.getElementById("collaborator-uploaded-at");
+    if (state.positionsUploadedAt) {
+        posEl.innerHTML = `<i class="fas fa-check-circle" style="color:var(--success)"></i> Завантажено: ${formatUploadDate(state.positionsUploadedAt)}`;
+        posEl.style.display = "block";
+        document.getElementById("positions-upload").classList.add("has-uploaded");
+    } else {
+        posEl.innerHTML = "";
+        posEl.style.display = "none";
+        document.getElementById("positions-upload").classList.remove("has-uploaded");
+    }
+    if (state.ahrefsUploadedAt) {
+        ahrefsEl.innerHTML = `<i class="fas fa-check-circle" style="color:var(--success)"></i> Завантажено: ${formatUploadDate(state.ahrefsUploadedAt)}`;
+        ahrefsEl.style.display = "block";
+        document.getElementById("ahrefs-upload").classList.add("has-uploaded");
+    } else {
+        ahrefsEl.innerHTML = "";
+        ahrefsEl.style.display = "none";
+        document.getElementById("ahrefs-upload").classList.remove("has-uploaded");
+    }
+    if (collabEl) {
+        if (state.collaboratorUploadedAt) {
+            collabEl.innerHTML = `<i class="fas fa-check-circle" style="color:var(--success)"></i> Завантажено: ${formatUploadDate(state.collaboratorUploadedAt)}`;
+            collabEl.style.display = "block";
+            document.getElementById("collaborator-upload").classList.add("has-uploaded");
+        } else {
+            collabEl.innerHTML = "";
+            collabEl.style.display = "none";
+            document.getElementById("collaborator-upload").classList.remove("has-uploaded");
+        }
+    }
+    checkCanAnalyze();
+}
 
 document.querySelectorAll(".upload-dropzone").forEach((zone) => {
     const inputId = zone.dataset.input;
@@ -290,22 +380,196 @@ document.querySelectorAll(".upload-dropzone").forEach((zone) => {
         }
     });
     input.addEventListener("change", () => {
+        const key = inputId === "positions-file" ? "positions" : inputId === "ahrefs-file" ? "ahrefs" : "collaborator";
         if (input.files.length) {
             const file = input.files[0];
             zone.classList.add("has-file");
             const statusEl = zone.closest(".upload-card").querySelector(".upload-status");
             statusEl.innerHTML = `<i class="fas fa-check-circle"></i> ${file.name} (${formatSize(file.size)})`;
             statusEl.classList.remove("error");
-            uploadValidationState[inputId === "positions-file" ? "positions" : "ahrefs"] = null;
+            uploadValidationState[key] = null;
             scheduleValidateUpload();
         } else {
             zone.classList.remove("has-file");
             zone.closest(".upload-card").querySelector(".upload-status").innerHTML = "";
             zone.closest(".upload-card").querySelector(".upload-validation-msg").innerHTML = "";
             zone.closest(".upload-card").querySelector(".upload-validation-msg").className = "upload-validation-msg";
-            uploadValidationState[inputId === "positions-file" ? "positions" : "ahrefs"] = null;
+            uploadValidationState[key] = null;
             checkCanAnalyze();
         }
+    });
+});
+
+// --- Positions source tabs (File / Google Sheets) ---
+document.querySelectorAll(".positions-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+        const mode = tab.dataset.mode;
+        document.querySelectorAll(".positions-tab").forEach((t) => t.classList.remove("active"));
+        tab.classList.add("active");
+        document.getElementById("positions-mode-file").style.display = mode === "file" ? "block" : "none";
+        document.getElementById("positions-mode-google").style.display = mode === "google" ? "block" : "none";
+        gsState.mode = mode;
+        document.getElementById("positions-file").value = "";
+        document.querySelector(".upload-dropzone[data-input='positions-file']")?.classList.remove("has-file");
+        document.getElementById("positions-status").innerHTML = "";
+        document.getElementById("positions-validation").innerHTML = "";
+        uploadValidationState.positions = null;
+        checkCanAnalyze();
+    });
+});
+
+// --- Google Sheets: fetch sheets list ---
+document.getElementById("gs-fetch-sheets").addEventListener("click", async () => {
+    const url = document.getElementById("gs-url").value.trim();
+    if (!url) {
+        alert("Введіть URL Google Таблиці");
+        return;
+    }
+    const btn = document.getElementById("gs-fetch-sheets");
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Завантаження...';
+    try {
+        const resp = await fetch(`${API_BASE}/google-sheets/sheets?url=${encodeURIComponent(url)}`);
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "Помилка");
+        gsState.url = url;
+        gsState.sheets = data.sheets || [];
+        const sel = document.getElementById("gs-sheet-select");
+        sel.innerHTML = '<option value="">— Оберіть лист —</option>';
+        gsState.sheets.forEach((s) => {
+            const opt = document.createElement("option");
+            opt.value = s.id;
+            opt.textContent = s.title;
+            opt.dataset.title = s.title;
+            sel.appendChild(opt);
+        });
+        sel.disabled = false;
+        document.getElementById("positions-status").innerHTML = `<i class="fas fa-check-circle"></i> Знайдено ${gsState.sheets.length} лист(ів)`;
+        document.getElementById("positions-status").classList.remove("error");
+    } catch (err) {
+        document.getElementById("positions-status").innerHTML = `<i class="fas fa-exclamation-circle"></i> ${err.message}`;
+        document.getElementById("positions-status").classList.add("error");
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-sync-alt"></i> Отримати листи';
+    }
+});
+
+// --- Google Sheets: sheet selected ---
+document.getElementById("gs-sheet-select").addEventListener("change", async () => {
+    const sheetId = document.getElementById("gs-sheet-select").value;
+    if (!sheetId) {
+        gsState.sheetId = null;
+        gsState.sheetTitle = "";
+        gsState.preview = null;
+        uploadValidationState.positions = null;
+        checkCanAnalyze();
+        return;
+    }
+    gsState.sheetId = sheetId;
+    const sheetTitle = document.getElementById("gs-sheet-select").selectedOptions[0]?.dataset?.title || "";
+    const statusEl = document.getElementById("positions-status");
+    statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Завантаження попереднього перегляду...';
+    try {
+        let previewUrl = `${API_BASE}/google-sheets/preview?url=${encodeURIComponent(gsState.url)}&sheet_id=${encodeURIComponent(sheetId)}`;
+        if (sheetTitle) previewUrl += `&sheet_title=${encodeURIComponent(sheetTitle)}`;
+        const resp = await fetch(previewUrl);
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "Помилка");
+        gsState.preview = data;
+        gsState.columnMapping = {
+            url: data.suggested_mapping?.url || null,
+            keyword: data.suggested_mapping?.keyword || null,
+            volume: data.suggested_mapping?.volume || null,
+            category: data.suggested_mapping?.category || null,
+            date_columns: data.suggested_mapping?.date_columns || [],
+            header_row_index: data.header_row_index,
+        };
+        gsState.sheetTitle = sheetTitle;
+        statusEl.innerHTML = `<i class="fas fa-check-circle"></i> Лист обрано. Рядок заголовків: ${(data.header_row_index || 0) + 1}`;
+        statusEl.classList.remove("error");
+        uploadValidationState.positions = true;
+        checkCanAnalyze();
+    } catch (err) {
+        statusEl.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${err.message}`;
+        statusEl.classList.add("error");
+        uploadValidationState.positions = false;
+        checkCanAnalyze();
+    }
+});
+
+// --- Google Sheets: configure columns modal ---
+function openGsColumnsModal() {
+    if (!gsState.preview || !gsState.columnMapping) {
+        alert("Спочатку оберіть лист");
+        return;
+    }
+    const headers = gsState.preview.headers || [];
+    const emptyOpt = '<option value="">— не використовувати —</option>';
+
+    function fillSelect(selId, value) {
+        const sel = document.getElementById(selId);
+        sel.innerHTML = emptyOpt + headers.map((h) => `<option value="${escapeHtml(h)}"${h === value ? " selected" : ""}>${escapeHtml(h)}</option>`).join("");
+    }
+    fillSelect("gs-map-url", gsState.columnMapping.url);
+    fillSelect("gs-map-keyword", gsState.columnMapping.keyword);
+    fillSelect("gs-map-volume", gsState.columnMapping.volume);
+    fillSelect("gs-map-category", gsState.columnMapping.category);
+
+    const allHeaders = gsState.preview.headers || [];
+    const suggestedDates = new Set(gsState.preview.suggested_mapping?.date_columns || []);
+    const dateCols = allHeaders.filter((h) => {
+        const s = String(h).trim();
+        return suggestedDates.has(s) || /^\d{2}\.\d{2}\.\d{4}$/.test(s) || /^\d{4}-\d{2}-\d{2}$/.test(s) || /^\d{2}\/\d{2}\/\d{4}$/.test(s);
+    });
+    const checkboxesDiv = document.getElementById("gs-date-checkboxes");
+    checkboxesDiv.innerHTML = dateCols.map((h) => {
+        const checked = gsState.columnMapping.date_columns?.includes(h) ? " checked" : "";
+        return `<label><input type="checkbox" value="${escapeHtml(h)}"${checked}> ${escapeHtml(h)}</label>`;
+    }).join("");
+
+    document.getElementById("gs-columns-modal").style.display = "flex";
+}
+function closeGsColumnsModal() {
+    document.getElementById("gs-columns-modal").style.display = "none";
+}
+function saveGsColumnMapping() {
+    gsState.columnMapping = {
+        url: document.getElementById("gs-map-url").value || null,
+        keyword: document.getElementById("gs-map-keyword").value || null,
+        volume: document.getElementById("gs-map-volume").value || null,
+        category: document.getElementById("gs-map-category").value || null,
+        date_columns: Array.from(document.querySelectorAll("#gs-date-checkboxes input:checked")).map((cb) => cb.value),
+        header_row_index: gsState.columnMapping?.header_row_index ?? gsState.preview?.header_row_index,
+    };
+    closeGsColumnsModal();
+}
+
+document.getElementById("gs-configure-cols").addEventListener("click", openGsColumnsModal);
+document.getElementById("gs-columns-modal-close").addEventListener("click", closeGsColumnsModal);
+document.getElementById("gs-columns-done").addEventListener("click", () => {
+    saveGsColumnMapping();
+});
+document.getElementById("gs-columns-modal").addEventListener("click", (e) => {
+    if (e.target.id === "gs-columns-modal") closeGsColumnsModal();
+});
+document.getElementById("gs-reset-mapping").addEventListener("click", () => {
+    if (!gsState.preview || !gsState.preview.suggested_mapping) return;
+    const m = gsState.preview.suggested_mapping;
+    gsState.columnMapping = {
+        url: m.url || null,
+        keyword: m.keyword || null,
+        volume: m.volume || null,
+        category: m.category || null,
+        date_columns: m.date_columns || [],
+        header_row_index: gsState.preview.header_row_index,
+    };
+    document.getElementById("gs-map-url").value = m.url || "";
+    document.getElementById("gs-map-keyword").value = m.keyword || "";
+    document.getElementById("gs-map-volume").value = m.volume || "";
+    document.getElementById("gs-map-category").value = m.category || "";
+    document.querySelectorAll("#gs-date-checkboxes input").forEach((cb) => {
+        cb.checked = (m.date_columns || []).includes(cb.value);
     });
 });
 
@@ -317,11 +581,14 @@ function scheduleValidateUpload() {
 async function validateUpload() {
     const positionsFile = document.getElementById("positions-file").files[0];
     const ahrefsFile = document.getElementById("ahrefs-file").files[0];
+    const collaboratorFile = document.getElementById("collaborator-file")?.files[0];
 
-    const posStatus = document.getElementById("positions-status");
     const posValidation = document.getElementById("positions-validation");
-    const ahrefsStatus = document.getElementById("ahrefs-status");
     const ahrefsValidation = document.getElementById("ahrefs-validation");
+    const collabValidation = document.getElementById("collaborator-validation");
+    const posStatus = document.getElementById("positions-status");
+    const ahrefsStatus = document.getElementById("ahrefs-status");
+    const collabStatus = document.getElementById("collaborator-status");
 
     if (positionsFile) {
         posValidation.textContent = "Перевіряємо...";
@@ -331,12 +598,17 @@ async function validateUpload() {
         ahrefsValidation.textContent = "Перевіряємо...";
         ahrefsValidation.className = "upload-validation-msg validating";
     }
+    if (collaboratorFile && collabValidation) {
+        collabValidation.textContent = "Перевіряємо...";
+        collabValidation.className = "upload-validation-msg validating";
+    }
 
     const formData = new FormData();
     if (positionsFile) formData.append("positions", positionsFile);
     if (ahrefsFile) formData.append("ahrefs", ahrefsFile);
+    if (collaboratorFile) formData.append("collaborator", collaboratorFile);
 
-    if (!positionsFile && !ahrefsFile) {
+    if (!positionsFile && !ahrefsFile && !collaboratorFile) {
         checkCanAnalyze();
         return;
     }
@@ -374,6 +646,21 @@ async function validateUpload() {
                 uploadValidationState.ahrefs = false;
             }
         }
+
+        if (collaboratorFile && collabValidation) {
+            const r = data.collaborator || {};
+            if (r.ok) {
+                collabValidation.textContent = `✓ ${r.rows ?? 0} записів знайдено`;
+                collabValidation.className = "upload-validation-msg success";
+                if (collabStatus) collabStatus.classList.remove("error");
+                uploadValidationState.collaborator = true;
+            } else {
+                collabValidation.textContent = r.error || "Помилка валідації";
+                collabValidation.className = "upload-validation-msg error";
+                if (collabStatus) collabStatus.classList.add("error");
+                uploadValidationState.collaborator = false;
+            }
+        }
     } catch (err) {
         if (positionsFile) {
             posValidation.textContent = "Помилка: " + err.message;
@@ -384,6 +671,11 @@ async function validateUpload() {
             ahrefsValidation.textContent = "Помилка: " + err.message;
             ahrefsValidation.className = "upload-validation-msg error";
             uploadValidationState.ahrefs = false;
+        }
+        if (collaboratorFile && collabValidation) {
+            collabValidation.textContent = "Помилка: " + err.message;
+            collabValidation.className = "upload-validation-msg error";
+            uploadValidationState.collaborator = false;
         }
     }
 
@@ -422,19 +714,49 @@ function formatSize(bytes) {
 }
 
 function checkCanAnalyze() {
-    const hasPos = document.getElementById("positions-file").files.length > 0;
-    const hasAhrefs = document.getElementById("ahrefs-file").files.length > 0;
-    const posOk = !hasPos || uploadValidationState.positions === true;
-    const ahrefsOk = !hasAhrefs || uploadValidationState.ahrefs === true;
-    const validating = (hasPos && uploadValidationState.positions === null) || (hasAhrefs && uploadValidationState.ahrefs === null);
-    document.getElementById("analyze-btn").disabled = !(hasPos && hasAhrefs && posOk && ahrefsOk && !validating);
+    const hasPosFile = document.getElementById("positions-file").files.length > 0;
+    const hasAhrefsFile = document.getElementById("ahrefs-file").files.length > 0;
+    const hasCollabFile = document.getElementById("collaborator-file")?.files.length > 0;
+    const hasExistingAnalysis = state.analysis && state.analysis.length > 0;
+    const gsMode = gsState.mode === "google";
+    const hasGsPos = gsMode && gsState.url && gsState.sheetId && gsState.columnMapping && gsState.columnMapping.url && gsState.columnMapping.keyword && (gsState.columnMapping.date_columns || []).length > 0;
+    const hasPos = hasPosFile || hasGsPos || state.positionsUploadedAt || hasExistingAnalysis;
+    const hasBacklinks = hasAhrefsFile || hasCollabFile || state.ahrefsUploadedAt || state.collaboratorUploadedAt || hasExistingAnalysis;
+    const posOk = !hasPosFile || uploadValidationState.positions === true;
+    const gsPosOk = !hasGsPos || uploadValidationState.positions === true;
+    const ahrefsOk = !hasAhrefsFile || uploadValidationState.ahrefs === true;
+    const collabOk = !hasCollabFile || uploadValidationState.collaborator === true;
+    const validating = (hasPosFile && uploadValidationState.positions === null) || (hasAhrefsFile && uploadValidationState.ahrefs === null) || (hasCollabFile && uploadValidationState.collaborator === null);
+    const btn = document.getElementById("analyze-btn");
+    btn.disabled = !(hasPos && hasBacklinks && posOk && gsPosOk && ahrefsOk && collabOk && !validating);
+    const btnText = btn.querySelector(".analyze-btn-text");
+    if (btnText) {
+        const hasNewData = hasPosFile || hasGsPos || hasAhrefsFile || hasCollabFile;
+        btnText.textContent = hasPos && hasBacklinks ? (hasNewData ? "Оновити дані" : "Перерахувати аналіз") : "Побудувати анкор-план";
+    }
+    const icon = btn.querySelector("i");
+    if (icon) icon.className = hasPosFile || hasAhrefsFile || hasCollabFile ? "fas fa-sync-alt" : "fas fa-magic";
 }
 
 // --- Analyze ---
 document.getElementById("analyze-btn").addEventListener("click", async () => {
     const formData = new FormData();
-    formData.append("positions", document.getElementById("positions-file").files[0]);
-    formData.append("ahrefs", document.getElementById("ahrefs-file").files[0]);
+    const posFile = document.getElementById("positions-file").files[0];
+    const ahrefsFile = document.getElementById("ahrefs-file").files[0];
+    const collaboratorFile = document.getElementById("collaborator-file")?.files[0];
+    const gsMode = gsState.mode === "google";
+
+    if (gsMode && gsState.url && gsState.sheetId && gsState.columnMapping) {
+        formData.append("positions_source", "google_sheets");
+        formData.append("positions_google_url", gsState.url);
+        formData.append("positions_sheet_id", gsState.sheetId);
+        if (gsState.sheetTitle) formData.append("positions_sheet_title", gsState.sheetTitle);
+        formData.append("column_mapping", JSON.stringify(gsState.columnMapping));
+    } else if (posFile) {
+        formData.append("positions", posFile);
+    }
+    if (ahrefsFile) formData.append("ahrefs", ahrefsFile);
+    if (collaboratorFile) formData.append("collaborator", collaboratorFile);
     formData.append("brand_name", document.getElementById("brand-name").value.trim());
 
     const loader = document.getElementById("loader");
@@ -452,7 +774,28 @@ document.getElementById("analyze-btn").addEventListener("click", async () => {
         state.settings = data.settings;
         state.selectedUrls = new Set(data.selected_urls || []);
         state.customLinks = data.custom_links || {};
+        state.positionsUploadedAt = data.positions_uploaded_at || state.positionsUploadedAt;
+        state.ahrefsUploadedAt = data.ahrefs_uploaded_at || state.ahrefsUploadedAt;
+        state.collaboratorUploadedAt = data.collaborator_uploaded_at || state.collaboratorUploadedAt;
 
+        document.getElementById("positions-file").value = "";
+        document.getElementById("ahrefs-file").value = "";
+        const collabInput = document.getElementById("collaborator-file");
+        if (collabInput) collabInput.value = "";
+        document.querySelectorAll(".upload-dropzone").forEach((z) => z.classList.remove("has-file"));
+        document.querySelectorAll(".upload-status").forEach((el) => { el.innerHTML = ""; el.classList.remove("error"); });
+        document.querySelectorAll(".upload-validation-msg").forEach((el) => { el.textContent = ""; el.className = "upload-validation-msg"; });
+        uploadValidationState.positions = null;
+        uploadValidationState.ahrefs = null;
+        uploadValidationState.collaborator = null;
+        gsState.sheetId = null;
+        gsState.sheetTitle = null;
+        gsState.preview = null;
+        gsState.columnMapping = null;
+        document.getElementById("gs-sheet-select").value = "";
+        document.getElementById("gs-sheet-select").disabled = true;
+
+        renderUploadStatus();
         enableNav();
         renderDashboard();
         renderPlan();
@@ -508,6 +851,10 @@ function sortDashboardData(data, column, direction) {
                 va = (a.best_keyword?.keyword || "").toLowerCase();
                 vb = (b.best_keyword?.keyword || "").toLowerCase();
                 return mult * (va < vb ? -1 : va > vb ? 1 : 0);
+            case "best_keyword_volume":
+                va = a.best_keyword_volume ?? a.total_volume ?? 0;
+                vb = b.best_keyword_volume ?? b.total_volume ?? 0;
+                return mult * (va - vb);
             case "position":
                 va = a.best_keyword?.current_position ?? 999;
                 vb = b.best_keyword?.current_position ?? 999;
@@ -697,7 +1044,8 @@ function renderDashboardTable(data) {
             <td class="url-cell" title="${escapeTitle(page.url)}"><a href="detail.html?project=${encodeURIComponent(projectId)}&url=${encodeURIComponent(page.url)}" title="${escapeTitle(page.url)} — клік для детальної статистики анкорів">${shortenUrl(page.url)}</a></td>
             <td title="${escapeTitle(REC_TOOLTIPS[rec] || "")}"><span class="badge badge-${rec}">${REC_LABELS[rec] || rec}</span></td>
             <td title="${escapeTitle(PRIORITY_TOOLTIPS[page.priority] || "")}"><span class="badge badge-${page.priority}">${page.priority.toUpperCase()}</span></td>
-            <td title="${escapeTitle(kwTip)}">${kwText || "—"}</td>
+            <td title="${escapeTitle(kwTip)}">${kwText ? (kwText + renderSourceBadges(page.best_keyword?.source ? [page.best_keyword.source] : ["positions"])) : "—"}</td>
+            <td title="Частота запитів (search volume)">${formatVolume(page.best_keyword_volume ?? page.total_volume)}</td>
             <td title="${escapeTitle(posTip)}">${pos ?? "—"}</td>
             <td class="dynamics-${dyn}" title="${escapeTitle(dynTip)}">${getDynamicsIcon(dyn)} ${dyn || "—"}</td>
             <td title="Загальна кількість зворотних посилань на цю сторінку">${page.total_backlinks}</td>
@@ -843,7 +1191,7 @@ function setDashboardSort(column) {
     } else {
         state.dashboardSort.column = column;
         state.dashboardSort.direction = "asc";
-        if (["position", "total_backlinks", "dofollow_count", "recommended_links", "unique_anchors", "priority_score"].includes(column)) {
+        if (["position", "total_backlinks", "dofollow_count", "recommended_links", "unique_anchors", "priority_score", "best_keyword_volume"].includes(column)) {
             state.dashboardSort.direction = "desc";
         }
     }
@@ -874,9 +1222,10 @@ function renderPlanTable(data) {
             <td><input type="checkbox" class="plan-cb" data-idx="${realIdx}" ${checked}></td>
             <td><span class="order-badge order-${order}">${order}</span></td>
             <td class="url-cell"><a href="detail.html?project=${encodeURIComponent(projectId)}&url=${encodeURIComponent(item.url)}" title="${item.url}">${shortenUrl(item.url)}</a></td>
-            <td class="editable-cell" data-row="${realIdx}">${item.recommended_anchor}${manualBadge}</td>
+            <td class="editable-cell" data-row="${realIdx}">${item.recommended_anchor}${(["exact_match","partial_match"].includes(item.anchor_type) ? renderSourceBadges(["positions"]) : "")}${manualBadge}</td>
             <td><span class="badge badge-${item.anchor_type}">${formatAnchorType(item.anchor_type)}</span></td>
-            <td>${item.target_keyword || "—"}</td>
+            <td>${item.target_keyword ? (item.target_keyword + renderSourceBadges(["positions"])) : "—"}</td>
+            <td>${formatVolume(item.volume)}</td>
             <td>${item.current_position ?? "—"}</td>
             <td class="dynamics-${item.dynamics}">${getDynamicsIcon(item.dynamics)} ${item.dynamics}</td>
             <td class="rationale-text">${item.rationale || item.comment || ""}</td>
@@ -2039,7 +2388,7 @@ function renderPurchasesStats() {
 function renderPurchasesTable(assignments) {
     const tbody = document.querySelector("#purchases-table tbody");
     if (!assignments || !assignments.length) {
-        tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:40px;color:var(--text-muted)">Натисніть "Підібрати площадки" для підбору</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-muted)">Натисніть "Підібрати площадки" для підбору</td></tr>';
         return;
     }
 
@@ -2069,8 +2418,9 @@ function renderPurchasesTable(assignments) {
         <tr>
             <td><span class="order-badge order-${order}">${order}</span></td>
             <td class="url-cell"><a href="detail.html?project=${encodeURIComponent(projectId)}&url=${encodeURIComponent(planItem.url || "")}" title="${planItem.url || ""}">${shortenUrl(planItem.url || "")}</a></td>
-            <td>${planItem.recommended_anchor || "—"}</td>
+            <td>${planItem.recommended_anchor ? (planItem.recommended_anchor + (["exact_match","partial_match"].includes(planItem.anchor_type) ? renderSourceBadges(["positions"]) : "")) : "—"}</td>
             <td><span class="badge badge-${planItem.anchor_type || ""}">${formatAnchorType(planItem.anchor_type || "")}</span></td>
+            <td>${formatVolume(planItem.volume)}</td>
             <td>${domainHtml}</td>
             <td>${isMatched ? (a.site_dr ?? "—") : "—"}</td>
             <td>${isMatched && a.site_organic != null ? Number(a.site_organic).toLocaleString() : "—"}</td>
@@ -2390,6 +2740,16 @@ function classifyAnchorJS(anchorText, targetKeywords, brandName, targetUrl) {
     return "other";
 }
 
+function anchorMatchesKeyword(anchor, keywords) {
+    const anchorLower = (anchor || "").toLowerCase().trim();
+    for (const kw of keywords || []) {
+        const kwLower = (kw || "").toLowerCase().trim();
+        if (!kwLower) continue;
+        if (anchorLower === kwLower || kwLower.includes(anchorLower) || anchorLower.includes(kwLower)) return true;
+    }
+    return false;
+}
+
 function collectStatData() {
     const brandName = state.settings?.brand_name || "";
     const allBacklinks = [];
@@ -2398,6 +2758,9 @@ function collectStatData() {
         const rawAnchors = page.raw_anchors || [];
         const keywords = (page.keywords || []).map(kw => kw.keyword);
         for (const bl of rawAnchors) {
+            const sources = new Set();
+            if (bl.source) sources.add(bl.source);
+            if (anchorMatchesKeyword(bl.anchor, keywords)) sources.add("positions");
             allBacklinks.push({
                 target_url: bl.target_url || page.url,
                 anchor: bl.anchor || "",
@@ -2407,6 +2770,8 @@ function collectStatData() {
                 placement_date: bl.placement_date || null,
                 cost: parseFloat(bl.cost) || 0,
                 type: classifyAnchorJS(bl.anchor, keywords, brandName, page.url),
+                source: bl.source || null,
+                sources: sources.size ? [...sources] : null,
             });
         }
     }
@@ -2769,7 +3134,16 @@ function renderStatUrlTable(data) {
     const byUrl = {};
     for (const bl of data) {
         const url = bl.target_url;
-        if (!byUrl[url]) byUrl[url] = { url, backlinks: [], cost: 0, types: new Set() };
+        if (!byUrl[url]) {
+            const page = state.analysis?.find((p) => p.url === url);
+            byUrl[url] = {
+                url,
+                backlinks: [],
+                cost: 0,
+                types: new Set(),
+                volume: page?.total_volume ?? page?.best_keyword_volume ?? null,
+            };
+        }
         byUrl[url].backlinks.push(bl);
         byUrl[url].cost += bl.cost;
         byUrl[url].types.add(bl.type);
@@ -2785,6 +3159,7 @@ function renderStatUrlTable(data) {
         if (col === "url") { va = a.url; vb = b.url; return dir * String(va).localeCompare(vb); }
         if (col === "count") { va = a.backlinks.length; vb = b.backlinks.length; return dir * (va - vb); }
         if (col === "cost") { va = a.cost; vb = b.cost; return dir * (va - vb); }
+        if (col === "volume") { va = a.volume ?? 0; vb = b.volume ?? 0; return dir * (va - vb); }
         return 0;
     });
 
@@ -2815,6 +3190,7 @@ function renderStatUrlTable(data) {
             <td><i class="fas fa-chevron-right stat-url-toggle" data-idx="${actualIdx}"></i></td>
             <td title="${escapeTitle(r.url)}" style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.url}</td>
             <td>${r.backlinks.length}</td>
+            <td>${formatVolume(r.volume)}</td>
             <td>${Math.round(r.cost).toLocaleString("uk-UA")} ${curr}</td>
             <td><div class="stat-type-badges">${typeBadges}</div></td>
         `;
@@ -2823,7 +3199,7 @@ function renderStatUrlTable(data) {
         detailRow.className = "stat-url-detail";
         detailRow.id = `stat-detail-${actualIdx}`;
         const detailTd = document.createElement("td");
-        detailTd.colSpan = 5;
+        detailTd.colSpan = 6;
         detailTd.innerHTML = buildUrlDetailHTML(r, actualIdx);
         detailRow.appendChild(detailTd);
 
@@ -2865,16 +3241,19 @@ function buildUrlDetailHTML(urlData, idx) {
         return db - da;
     });
 
-    let anchorsHTML = blSorted.map(bl => `
+    let anchorsHTML = blSorted.map(bl => {
+        const sources = bl.sources && bl.sources.length ? bl.sources : (bl.source ? [bl.source] : []);
+        return `
         <tr>
-            <td>${bl.anchor}</td>
+            <td>${bl.anchor}${sources.length ? renderSourceBadges(sources) : ""}</td>
             <td><span class="stat-type-badge ${bl.type}">${STAT_TYPE_LABELS[bl.type] || bl.type}</span></td>
             <td title="${bl.referring_url}" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${bl.referring_url || "—"}</td>
             <td>${bl.dr != null ? bl.dr : "—"}</td>
             <td>${bl.placement_date || "—"}</td>
             <td>${bl.cost ? Math.round(bl.cost).toLocaleString("uk-UA") + " " + getStatCurrency() : "—"}</td>
         </tr>
-    `).join("");
+    `;
+    }).join("");
 
     return `
         <div class="stat-url-detail-inner">
